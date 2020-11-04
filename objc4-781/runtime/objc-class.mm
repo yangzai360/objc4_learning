@@ -427,19 +427,18 @@ Ivar object_getInstanceVariable(id obj, const char *name, void **value)
 }
 
 
-/***********************************************************************
+/****************************
 * object_cxxDestructFromClass.
 * Call C++ destructors on obj, starting with cls's 
 *   dtor method (if any) followed by superclasses' dtors (if any), 
 *   stopping at cls's dtor (if any).
 * Uses methodListLock and cacheUpdateLock. The caller must hold neither.
-**********************************************************************/
+****************************/
 static void object_cxxDestructFromClass(id obj, Class cls)
 {
     void (*dtor)(id);
 
-    // Call cls's dtor first, then superclasses's dtors.
-
+    // 源：先调用 cls 的析构，再不断调用父类的析构函数
     for ( ; cls; cls = cls->superclass) {
         if (!cls->hasCxxDtor()) return; 
         dtor = (void(*)(id))
@@ -455,16 +454,17 @@ static void object_cxxDestructFromClass(id obj, Class cls)
 }
 
 
-/***********************************************************************
+/*****************************
+* 执行C++的析构函数
 * object_cxxDestruct.
 * Call C++ destructors on obj, if any.
 * Uses methodListLock and cacheUpdateLock. The caller must hold neither.
-**********************************************************************/
+*****************************/
 void object_cxxDestruct(id obj)
 {
     if (!obj) return;
     if (obj->isTaggedPointer()) return;
-    object_cxxDestructFromClass(obj, obj->ISA());
+    object_cxxDestructFromClass(obj, obj->ISA());  
 }
 
 

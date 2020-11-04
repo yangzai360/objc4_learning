@@ -232,8 +232,8 @@ ldp(uintptr_t& onep, uintptr_t& twop, const void *srcp)
 #endif
 
 
-// Class points to cache. SEL is key. Cache buckets store SEL+IMP.
-// Caches are never built in the dyld shared cache.
+// 源：对类的指针进行缓存，SEL 是 key，缓存的桶存储SEL+IMP.
+// 源：Caches 永远不会内置在 dyld 共享缓存中。
 
 static inline mask_t cache_hash(SEL sel, mask_t mask) 
 {
@@ -310,29 +310,31 @@ void bucket_t::set(SEL newSel, IMP newImp, Class cls)
 
 void cache_t::setBucketsAndMask(struct bucket_t *newBuckets, mask_t newMask)
 {
-    // objc_msgSend uses mask and buckets with no locks.
-    // It is safe for objc_msgSend to see new buckets but old mask.
-    // (It will get a cache miss but not overrun the buckets' bounds).
-    // It is unsafe for objc_msgSend to see old buckets and new mask.
-    // Therefore we write new buckets, wait a lot, then write new mask.
-    // objc_msgSend reads mask first, then buckets.
+    // 源：objc_msgSend使用无锁的掩码和存储桶。
+    // 对于objc_msgSend，可以安全地看到新的存储桶，但是看到旧的掩码。
+    //（这会导致缓存未命中，但不会超出存储分区的范围）。
+    // objc_msgSend查看旧存储桶和新掩码是不安全的。
+    // 因此，我们编写了新的存储桶，等待很多，然后编写新的掩码。
+    // objc_msgSend首先读取掩码，然后读取存储桶。
 
 #ifdef __arm__
-    // ensure other threads see buckets contents before buckets pointer
+    //  源：确保其他线程在存储桶指针之前看到存储桶内容
     mega_barrier();
 
+    //看源码这里主要业务操作就是把 newBuckets store 保存起来
     _buckets.store(newBuckets, memory_order::memory_order_relaxed);
     
-    // ensure other threads see new buckets before new mask
+    //  源：确保其他线程在新掩码之前看到新的存储桶
     mega_barrier();
     
     _mask.store(newMask, memory_order::memory_order_relaxed);
+    // 占用的内存空间为0
     _occupied = 0;
 #elif __x86_64__ || i386
-    // ensure other threads see buckets contents before buckets pointer
+    // 确保其他线程在存储桶指针之前看到存储桶内容
     _buckets.store(newBuckets, memory_order::memory_order_release);
     
-    // ensure other threads see new buckets before new mask
+    // 确保其他线程在新掩码之前看到新的存储桶
     _mask.store(newMask, memory_order::memory_order_release);
     _occupied = 0;
 #else
@@ -479,19 +481,19 @@ bucket_t *cache_t::endMarker(struct bucket_t *b, uint32_t cap)
 
 bucket_t *allocateBuckets(mask_t newCapacity)
 {
-    // Allocate one extra bucket to mark the end of the list.
-    // This can't overflow mask_t because newCapacity is a power of 2.
+    // 源:分配一个额外的存储桶以标记列表的末尾。
+    // 源:这不会溢出mask_t，因为newCapacity是2的幂。
     bucket_t *newBuckets = (bucket_t *)
         calloc(cache_t::bytesForCapacity(newCapacity), 1);
 
     bucket_t *end = cache_t::endMarker(newBuckets, newCapacity);
 
 #if __arm__
-    // End marker's sel is 1 and imp points BEFORE the first bucket.
-    // This saves an instruction in objc_msgSend.
+    // 源:结束标记的sel为1，并且在第一个存储区之前的隐含点。
+    // 源:这会将指令保存在objc_msgSend中。
     end->set<NotAtomic, Raw>((SEL)(uintptr_t)1, (IMP)(newBuckets - 1), nil);
 #else
-    // End marker's sel is 1 and imp points to the first bucket.
+    // 源:结束标记的sel为1，imp 指向第一个存储桶。
     end->set<NotAtomic, Raw>((SEL)(uintptr_t)1, (IMP)newBuckets, nil);
 #endif
     
@@ -569,9 +571,11 @@ bool cache_t::canBeFreed()
     return !isConstantEmptyCache();
 }
 
+#pragma mark - reallocate 开辟空间
 ALWAYS_INLINE
 void cache_t::reallocate(mask_t oldCapacity, mask_t newCapacity, bool freeOld)
 {
+    // 旧的bucket。 alloc新的 newCapacity 大小的空间。
     bucket_t *oldBuckets = buckets();
     bucket_t *newBuckets = allocateBuckets(newCapacity);
 
@@ -584,6 +588,7 @@ void cache_t::reallocate(mask_t oldCapacity, mask_t newCapacity, bool freeOld)
 
     setBucketsAndMask(newBuckets, newCapacity - 1);
     
+    // 处理旧cache
     if (freeOld) {
         cache_collect_free(oldBuckets, oldCapacity);
     }
@@ -635,6 +640,7 @@ void cache_t::bad_cache(id receiver, SEL sel, Class isa)
          "invalid object, or a memory error somewhere else.");
 }
 
+#pragma mark  - 插入操作
 ALWAYS_INLINE
 void cache_t::insert(Class cls, SEL sel, IMP imp, id receiver)
 {
@@ -646,33 +652,34 @@ void cache_t::insert(Class cls, SEL sel, IMP imp, id receiver)
 
     ASSERT(sel != 0 && cls->isInitialized());
 
-    // Use the cache as-is if it is less than 3/4 full
+    //如果缓存占用全部空间小于 四分之三，就按原样使用
     mask_t newOccupied = occupied() + 1;
     unsigned oldCapacity = capacity(), capacity = oldCapacity;
+//   缓存初始化
     if (slowpath(isConstantEmptyCache())) {
-        // Cache is read-only. Replace it.
-        if (!capacity) capacity = INIT_CACHE_SIZE;
+        // Cache readOnly，全部替换为新的对象
+        if (!capacity) capacity = INIT_CACHE_SIZE; // 初始化的 capacity 为 4，通用都是这样设置的
+        // reallocate 开辟空间
         reallocate(oldCapacity, capacity, /* freeOld */false);
     }
     else if (fastpath(newOccupied + CACHE_END_MARKER <= capacity / 4 * 3)) {
-        // Cache is less than 3/4 full. Use it as-is.
+        // 缓存占用全部空间小于 四分之三，原样使用
     }
-    else {
+    else { // 新的进来之后就大于四分之三了，扩容两倍！
         capacity = capacity ? capacity * 2 : INIT_CACHE_SIZE;
-        if (capacity > MAX_CACHE_SIZE) {
+        if (capacity > MAX_CACHE_SIZE) { // 这里有一个扩容的最大值 1 << 16 - 1
             capacity = MAX_CACHE_SIZE;
         }
-        reallocate(oldCapacity, capacity, true);
+        reallocate(oldCapacity, capacity, true); // 正式扩容处理的函数
     }
 
     bucket_t *b = buckets();
     mask_t m = capacity - 1;
-    mask_t begin = cache_hash(sel, m);
+    mask_t begin = cache_hash(sel, m); // 这里hash的计算是用sel指针和「capacity-1」做与操作计算，下面的 do-while 去处理hash冲突的寻址。这里解决冲突的方法不是顺序+1，而是使用这个方法再次计算hash值「fastpath((i = cache_next(i, m)) != begin)」
     mask_t i = begin;
 
-    // Scan for the first unused slot and insert there.
-    // There is guaranteed to be an empty slot because the
-    // minimum size is 4 and we resized at 3/4 full.
+    // 源：扫描第一个未使用的插槽，然后将其插入。
+    // 源：由于最小大小为4，并且我们将其大小调整为3/4 full，因此保证有一个空插槽。
     do {
         if (fastpath(b[i].sel() == 0)) {
             incrementOccupied();
@@ -948,16 +955,18 @@ static void _garbage_make_room(void)
 {
     static int first = 1;
 
-    // Create the collection table the first time it is needed
+    // 第一次需要时创建收集表
+
     if (first)
     {
         first = 0;
+        //第一个储存起来
         garbage_refs = (bucket_t**)
             malloc(INIT_GARBAGE_COUNT * sizeof(void *));
         garbage_max = INIT_GARBAGE_COUNT;
     }
 
-    // Double the table if it is full
+    // 如果 表 已经满了，就 double 扩容
     else if (garbage_count == garbage_max)
     {
         garbage_refs = (bucket_t**)
@@ -984,6 +993,7 @@ static void cache_collect_free(bucket_t *data, mask_t capacity)
 
     if (PrintCaches) recordDeadCache(capacity);
 
+    // 垃圾处理
     _garbage_make_room ();
     garbage_byte_size += cache_t::bytesForCapacity(capacity);
     garbage_refs[garbage_count++] = data;

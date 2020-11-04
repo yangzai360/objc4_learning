@@ -157,7 +157,8 @@ objc_object::isExtTaggedPointer()
 // not SUPPORT_TAGGED_POINTERS
 #endif
 
-
+// // Define SUPPORT_NONPOINTER_ISA=1 on any platform that may store something
+// in the isa field that is not a raw pointer.
 #if SUPPORT_NONPOINTER_ISA
 
 inline Class 
@@ -236,24 +237,21 @@ objc_object::initIsa(Class cls, bool nonpointer, bool hasCxxDtor)
 #if SUPPORT_INDEXED_ISA
         ASSERT(cls->classArrayIndex() > 0);
         newisa.bits = ISA_INDEX_MAGIC_VALUE;
-        // isa.magic is part of ISA_MAGIC_VALUE
-        // isa.nonpointer is part of ISA_MAGIC_VALUE
+        // isa.magic 是 ISA_MAGIC_VALUE 的一部分
+        // isa.nonpointer 是 ISA_MAGIC_VALUE 的一部分
         newisa.has_cxx_dtor = hasCxxDtor;
         newisa.indexcls = (uintptr_t)cls->classArrayIndex();
 #else
         newisa.bits = ISA_MAGIC_VALUE;
-        // isa.magic is part of ISA_MAGIC_VALUE
-        // isa.nonpointer is part of ISA_MAGIC_VALUE
+        // isa.magic 是 ISA_MAGIC_VALUE 的一部分
+        // isa.nonpointer 是 ISA_MAGIC_VALUE 的一部分
         newisa.has_cxx_dtor = hasCxxDtor;
         newisa.shiftcls = (uintptr_t)cls >> 3;
 #endif
 
-        // This write must be performed in a single store in some cases
-        // (for example when realizing a class because other threads
-        // may simultaneously try to use the class).
-        // fixme use atomics here to guarantee single-store and to
-        // guarantee memory order w.r.t. the class index table
-        // ...but not too atomic because we don't want to hurt instantiation
+        // 在某些情况下，此写操作必须在单个存储中执行
+        // （例如，在实现类时，因为其他线程可以同时尝试使用该类）
+        // fixme在这里使用原子来保证单存储并保证存储顺序w.r.t. 类索引表，但是不要太原子，因为我们不想破坏实例化
         isa = newisa;
     }
 }
@@ -433,7 +431,8 @@ objc_object::clearDeallocating()
 inline void
 objc_object::rootDealloc()
 {
-    if (isTaggedPointer()) return;  // fixme necessary?
+    // fixme necessary?
+    if (isTaggedPointer()) return;
 
     if (fastpath(isa.nonpointer  &&  
                  !isa.weakly_referenced  &&  
@@ -542,7 +541,7 @@ objc_object::rootRetain(bool tryRetain, bool handleOverflow)
 }
 
 
-// Equivalent to calling [this release], with shortcuts if there is no override
+// 等同于调用 [this release], 如果没有重写的话，就走一个捷径
 inline void
 objc_object::release()
 {
@@ -599,11 +598,12 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
             if (sideTableLocked) sidetable_unlock();
             return sidetable_release(performDealloc);
         }
-        // don't check newisa.fast_rr; we already called any RR overrides
+        // 不用检查 newisa.fast_rr; 已经调用过了任何RR的重写了
         uintptr_t carry;
         newisa.bits = subc(newisa.bits, RC_ONE, 0, &carry);  // extra_rc--
         if (slowpath(carry)) {
-            // don't ClearExclusive()
+            // 如果extra_rc==0，extra_rc--会是负数，carry=1
+            // 不要 ClearExclusive()
             goto underflow;
         }
     } while (slowpath(!StoreReleaseExclusive(&isa.bits, 
@@ -616,16 +616,18 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
     // newisa.extra_rc-- underflowed: borrow from side table or deallocate
 
     // abandon newisa to undo the decrement
+    // newisa重新赋值
     newisa = oldisa;
 
     if (slowpath(newisa.has_sidetable_rc)) {
+        // 有借位保存，rootRelease_underflow重新进入函数
         if (!handleUnderflow) {
             ClearExclusive(&isa.bits);
             return rootRelease_underflow(performDealloc);
         }
 
         // Transfer retain count from side table to inline storage.
-
+        // 一些锁的操作，如果是sidetable里面的锁的话，这个使用的是自旋锁
         if (!sideTableLocked) {
             ClearExclusive(&isa.bits);
             sidetable_lock();
@@ -635,6 +637,7 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
             goto retry;
         }
 
+        // 获取借位引用次数，（获取次数最大 RC_HALF）
         // Try to remove some retain counts from the side table.        
         size_t borrowed = sidetable_subExtraRC_nolock(RC_HALF);
 
@@ -642,12 +645,16 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
         // even if the side table count is now zero.
 
         if (borrowed > 0) {
+            // extra_rc--
             // Side table retain count decreased.
             // Try to add them to the inline count.
             newisa.extra_rc = borrowed - 1;  // redo the original decrement too
+            // 保存，就是StoreExclusive
+            // 如果&isa.bits和oldisa.bits相等，那么就把newisa.bits的值赋给&isa.bits，并且返回true
             bool stored = StoreReleaseExclusive(&isa.bits, 
                                                 oldisa.bits, newisa.bits);
             if (!stored) {
+                // 保存失败，重新试一次（重复的代码）
                 // Inline update failed. 
                 // Try it again right now. This prevents livelock on LL/SC 
                 // architectures where the side table access itself may have 
@@ -666,12 +673,13 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
             }
 
             if (!stored) {
+                // 还是不成功，把次数放回SideTable，重试retry
                 // Inline update failed.
                 // Put the retains back in the side table.
                 sidetable_addExtraRC_nolock(borrowed);
                 goto retry;
             }
-
+            // release结束
             // Decrement successful after borrowing from side table.
             // This decrement cannot be the deallocating decrement - the side 
             // table lock and has_sidetable_rc bit ensure that if everyone 
@@ -680,19 +688,23 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
             return false;
         }
         else {
+            // 如果sidetable也有没有次数，然后就到下面dealloc阶段了
             // Side table is empty after all. Fall-through to the dealloc path.
         }
     }
+    // 如果没有借位保存次数，来到这里
 
     // Really deallocate.
 
     if (slowpath(newisa.deallocating)) {
+        // 如果对象已经正在释放，报错警告：多次release
         ClearExclusive(&isa.bits);
         if (sideTableLocked) sidetable_unlock();
         return overrelease_error();
         // does not actually return
     }
     newisa.deallocating = true;
+    // 保存 bits
     if (!StoreExclusive(&isa.bits, oldisa.bits, newisa.bits)) goto retry;
 
     if (slowpath(sideTableLocked)) sidetable_unlock();
@@ -700,6 +712,7 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
     __c11_atomic_thread_fence(__ATOMIC_ACQUIRE);
 
     if (performDealloc) {
+        // 调用dealloc
         ((void(*)(objc_object *, SEL))objc_msgSend)(this, @selector(dealloc));
     }
     return true;

@@ -44,6 +44,13 @@
 #   define WORD_BITS 32
 #endif
 
+
+/*
+ #ifdef __LP64__
+ #   define WORD_SHIFT 3UL
+ #   define WORD_MASK 7UL
+ #   define WORD_BITS 64
+ */
 static inline uint32_t word_align(uint32_t x) {
     return (x + WORD_MASK) & ~WORD_MASK;
 }

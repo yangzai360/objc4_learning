@@ -69,7 +69,7 @@ id(*badAllocHandler)(Class) = &defaultBadAllocHandler;
 
 id _objc_callBadAllocHandler(Class cls)
 {
-    // fixme add re-entrancy protection in case allocation fails inside handler
+    // fixme 在处理程序内部分配失败的情况下添加重新进入保护
     return (*badAllocHandler)(cls);
 }
 
@@ -248,9 +248,11 @@ void
 objc_storeStrong(id *location, id obj)
 {
     id prev = *location;
+    // 判断上一个值跟目前的值是否同一地址
     if (obj == prev) {
         return;
     }
+    // 两个值，retain新值，release旧的值
     objc_retain(obj);
     *location = obj;
     objc_release(prev);
@@ -1212,10 +1214,9 @@ objc_object::rootRelease_underflow(bool performDealloc)
 }
 
 
-// Slow path of clearDeallocating() 
-// for objects with nonpointer isa
-// that were ever weakly referenced 
-// or whose retain count ever overflowed to the side table.
+// 对于那些曾经被弱引用
+// 或者其保留计数曾经溢出到边表的具有非指针isa的对象，
+// clearDeallocating（）的慢路径。
 NEVER_INLINE void
 objc_object::clearDeallocating_slow()
 {
@@ -1263,7 +1264,7 @@ objc_object::overrelease_error()
 
 
 #if DEBUG
-// Used to assert that an object is not present in the side table.
+//DEBUG 模式下才启用 ：用于  断言 side table 中不存在对象。
 bool
 objc_object::sidetable_present()
 {
@@ -1557,9 +1558,9 @@ objc_object::sidetable_clearDeallocating()
 {
     SideTable& table = SideTables()[this];
 
-    // clear any weak table items
-    // clear extra retain count and deallocating bit
-    // (fixme warn or abort if extra retain count == 0 ?)
+    //清除所有弱表项
+    //清除额外的保留计数并释放位
+    //（如果额外保留计数== 0，fixme警告或中止？）
     table.lock();
     RefcountMap::iterator it = table.refcnts.find(this);
     if (it != table.refcnts.end()) {
@@ -1702,12 +1703,13 @@ callAlloc(Class cls, bool checkNil, bool allocWithZone=false)
 {
 #if __OBJC2__
     if (slowpath(checkNil && !cls)) return nil;
-    if (fastpath(!cls->ISA()->hasCustomAWZ())) {
+    if (fastpath(!cls->ISA()->hasCustomAWZ())) {// 如果 cls 的类体里面没有实现自定义 allocWithZone 方法
+        // 因为 NSObject 的元类中实现了，所以初始化会走到这里！
         return _objc_rootAllocWithZone(cls, nil);
     }
 #endif
 
-    // No shortcuts available.
+    // No shortcuts available. 没有任何捷径
     if (allocWithZone) {
         return ((id(*)(id, SEL, struct _NSZone *))objc_msgSend)(cls, @selector(allocWithZone:), nil);
     }
@@ -1741,7 +1743,10 @@ objc_allocWithZone(Class cls)
 id
 objc_alloc_init(Class cls)
 {
-    return [callAlloc(cls, true/*checkNil*/, false/*allocWithZone*/) init];
+    return [callAlloc(cls,
+                      true/*checkNil*/,
+                      false/*allocWithZone*/)
+            init];
 }
 
 // Calls [cls new]
@@ -1832,8 +1837,8 @@ _objc_rootFinalize(id obj __unused)
 id
 _objc_rootInit(id obj)
 {
-    // In practice, it will be hard to rely on this function.
-    // Many classes do not properly chain -init calls.
+    // 源：实际上，将很难依赖此功能
+    // 因为许多类未正确链接到-init的调用上
     return obj;
 }
 
@@ -2317,6 +2322,7 @@ __attribute__((objc_nonlazy_class))
     return _objc_rootRetainCount(self);
 }
 
+// NSObject 的 alloc 方法
 + (id)alloc {
     return _objc_rootAlloc(self);
 }

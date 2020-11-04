@@ -149,10 +149,10 @@
 #define FAST_CACHE_ALLOC_MASK16       0x1ff0
 #define FAST_CACHE_ALLOC_DELTA16      0x0008
 
-// class's instances requires raw isa
+// class's instances requires raw isa  类的实例需要原始isa
 #define FAST_CACHE_REQUIRES_RAW_ISA   (1<<13)
-// class or superclass has default alloc/allocWithZone: implementation
-// Note this is is stored in the metaclass.
+// 类或超类具有默认的alloc / allocWithZone：实现
+// 注意，这存储在元类中。
 #define FAST_CACHE_HAS_DEFAULT_AWZ    (1<<14)
 // class or superclass has default new/self/class/respondsToSelector/isKindOfClass
 #define FAST_CACHE_HAS_DEFAULT_CORE   (1<<15)
@@ -204,8 +204,8 @@ enum IMPEncoding { Encoded = true, Raw = false };
 
 struct bucket_t {
 private:
-    // IMP-first is better for arm64e ptrauth and no worse for arm64.
-    // SEL-first is better for armv7* and i386 and x86_64.
+    // 源：IMP-first对arm64e的参数更好，而对arm64的效果更好。
+    // 源：对于 armv7*，i386 和 x86_64，SEL-first更好。
 #if __arm64__
     explicit_atomic<uintptr_t> _imp;
     explicit_atomic<SEL> _sel;
@@ -351,8 +351,7 @@ public:
             return _flags & FAST_CACHE_ALLOC_MASK16;
         } else {
             size_t size = _flags & FAST_CACHE_ALLOC_MASK;
-            // remove the FAST_CACHE_ALLOC_DELTA16 that was added
-            // by setFastInstanceSize
+            // 删除由 setFastInstanceSize 添加的 FAST_CACHE_ALLOC_DELTA16
             return align16(size + extra - FAST_CACHE_ALLOC_DELTA16);
         }
     }
@@ -1584,13 +1583,13 @@ struct objc_class : objc_object {
         return word_align(unalignedInstanceStart());
     }
 
-    // May be unaligned depending on class's ivars.
+    // 源：可能未对齐，具体取决于类的ivars
     uint32_t unalignedInstanceSize() const {
         ASSERT(isRealized());
         return data()->ro()->instanceSize;
     }
 
-    // Class's ivar size rounded up to a pointer-size boundary.
+    // 源：类的ivar大小四舍五入到指针大小的边界。
     uint32_t alignedInstanceSize() const {
         return word_align(unalignedInstanceSize());
     }
@@ -1600,8 +1599,9 @@ struct objc_class : objc_object {
             return cache.fastInstanceSize(extraBytes);
         }
 
+        // 跟踪自定义的类的初始化，这里下面的不会执行，但是下面CF16的注释是真的要求
         size_t size = alignedInstanceSize() + extraBytes;
-        // CF requires all objects be at least 16 bytes.
+        // CF 要求所有的对象必须至少占16字节
         if (size < 16) size = 16;
         return size;
     }

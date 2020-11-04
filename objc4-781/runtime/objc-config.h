@@ -189,10 +189,10 @@
 #define CONFIG_USE_CACHE_LOCK 1
 #endif
 
-// Determine how the method cache stores IMPs.
-#define CACHE_IMP_ENCODING_NONE 1 // Method cache contains raw IMP.
-#define CACHE_IMP_ENCODING_ISA_XOR 2 // Method cache contains ISA ^ IMP.
-#define CACHE_IMP_ENCODING_PTRAUTH 3 // Method cache contains ptrauth'd IMP.
+// 确定方法缓存如何存储IMP。
+#define CACHE_IMP_ENCODING_NONE 1 // 方法缓存包含原始IMP。
+#define CACHE_IMP_ENCODING_ISA_XOR 2 // 方法缓存包含 ISA ^ IMP.
+#define CACHE_IMP_ENCODING_PTRAUTH 3 // 方法缓存包含 ptrauth的IMP。
 
 #if __PTRAUTH_INTRINSICS__
 // Always use ptrauth when it's supported.

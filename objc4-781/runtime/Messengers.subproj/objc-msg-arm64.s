@@ -103,21 +103,27 @@ _objc_indexed_classes:
 
 #if SUPPORT_INDEXED_ISA
 	// Indexed isa
+//---- 将isa的值存入p16寄存器
 	mov	p16, $0			// optimistically set dst = src
-	tbz	p16, #ISA_INDEX_IS_NPI_BIT, 1f	// done if not non-pointer isa
+	tbz	p16, #ISA_INDEX_IS_NPI_BIT, 1f	// 判断 non-pointer isa
 	// isa in p16 is indexed
+    //---- 将_objc_indexed_classes所在的页的基址 读入x10寄存器
 	adrp	x10, _objc_indexed_classes@PAGE
+    //---- x10 = x10 + _objc_indexed_classes(page中的偏移量) --x10基址 根据 偏移量 进行 内存偏移
 	add	x10, x10, _objc_indexed_classes@PAGEOFF
+    //---- 从p16的第ISA_INDEX_SHIFT位开始，提取 ISA_INDEX_BITS 位 到 p16寄存器，剩余的高位用0补充
 	ubfx	p16, p16, #ISA_INDEX_SHIFT, #ISA_INDEX_BITS  // extract index
 	ldr	p16, [x10, p16, UXTP #PTRSHIFT]	// load class from array
 1:
 
+//--用于64位系统
 #elif __LP64__
 	// 64-bit packed isa
+    //---- p16 = class = isa & ISA_MASK(位运算 & 即获取isa中的shiftcls信息)
 	and	p16, $0, #ISA_MASK
 
 #else
-	// 32-bit raw isa
+    // 32-bit raw isa ---- 用于32位系统
 	mov	p16, $0
 
 #endif
@@ -241,21 +247,21 @@ LExit$0:
 .endif
 .endmacro
 
+
 .macro CacheLookup
 	//
-	// Restart protocol:
+	// 重启协议:
 	//
-	//   As soon as we're past the LLookupStart$1 label we may have loaded
-	//   an invalid cache pointer or mask.
+	//   一旦我们经过LLookupStart $ 1标签，
+    //   我们可能已经加载了无效的缓存指针或掩码。
 	//
-	//   When task_restartable_ranges_synchronize() is called,
-	//   (or when a signal hits us) before we're past LLookupEnd$1,
-	//   then our PC will be reset to LLookupRecover$1 which forcefully
-	//   jumps to the cache-miss codepath which have the following
-	//   requirements:
+    //   当调用task_restartable_ranges_synchronize（）时
+    //   （或当信号到达我们时），在我们经过LLookupEnd $ 1之前，
+    //   我们的PC将重置为LLookupRecover $ 1，、
+    //   这将强制跳至具有以下要求的缓存丢失代码路径：
 	//
 	//   GETIMP:
-	//     The cache-miss is just returning NULL (setting x0 to 0)
+	//     cache 未命中只是返回NULL（将x0设置为0）
 	//
 	//   NORMAL and LOOKUP:
 	//   - x0 contains the receiver
@@ -265,12 +271,20 @@ LExit$0:
 	//
 LLookupStart$1:
 
-	// p1 = SEL, p16 = isa
-	ldr	p11, [x16, #CACHE]				// p11 = mask|buckets
+	// p1 = SEL, p16 = isa  --- #define CACHE (2 * __SIZEOF_POINTER__)，其中 __SIZEOF_POINTER__表示pointer的大小 ，即 2*8 = 16
+	ldr	p11, [x16, #CACHE]				// p11 = mask|buckets 从x16（即isa）中平移16字节，取出cache 存入p11寄存器 -- isa距离cache 正好16字节：isa（8字节）-superClass（8字节）-cache（mask高16位 + buckets低48位）
+    ldr p11, [x16, #CACHE]
 
+//---- 64位真机
 #if CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_HIGH_16
+//--- p11(cache) & 0x0000ffffffffffff ，mask高16位抹零，得到buckets 存入p10寄存器-- 即去掉mask，留下buckets
+
 	and	p10, p11, #0x0000ffffffffffff	// p10 = buckets
+
+//--- p11(cache)右移48位，得到mask（即p11 存储mask），mask & p1(msgSend的第二个参数 cmd-sel) ，得到sel-imp的下标index（即搜索下标） 存入p12（cache insert写入时的哈希下标计算是 通过 sel & mask，读取时也需要通过这种方式）
 	and	p12, p1, p11, LSR #48		// x12 = _cmd & mask
+
+//--- 非64位真机
 #elif CACHE_MASK_STORAGE == CACHE_MASK_STORAGE_LOW_4
 	and	p10, p11, #~0xf			// p10 = buckets
 	and	p11, p11, #0xf			// p11 = maskShift
@@ -282,19 +296,30 @@ LLookupStart$1:
 #endif
 
 
+    //--- p12是下标 p10是buckets数组首地址，下标 * 1<<4(即16) 得到实际内存的偏移量，通过buckets的首地址偏移，获取bucket存入p12寄存器
+    //--- LSL #(1+PTRSHIFT)-- 实际含义就是得到一个bucket占用的内存大小 -- 相当于mask = occupied -1-- _cmd & mask -- 取余数
 	add	p12, p10, p12, LSL #(1+PTRSHIFT)
 		             // p12 = buckets + ((_cmd & mask) << (1+PTRSHIFT))
 
+    //--- 从x12（即p12）中取出 bucket 分别将imp和sel 存入 p17（存储imp） 和 p9（存储sel）
 	ldp	p17, p9, [x12]		// {imp, sel} = *bucket
+//--- 比较 sel 与 p1（传入的参数cmd）
 1:	cmp	p9, p1			// if (bucket->sel != _cmd)
+    //--- 如果不相等，即没有找到，请跳转至 2f
 	b.ne	2f			//     scan more
+    //--- 如果相等 即cacheHit 缓存命中，直接返回imp
 	CacheHit $0			// call or return imp
 	
 2:	// not hit: p12 = not-hit bucket
+    //--- 如果一直都找不到， 因为是normal ，跳转至__objc_msgSend_uncached
 	CheckMiss $0			// miss if bucket->sel == 0
+    //--- 判断p12（下标对应的bucket） 是否 等于 p10（buckets数组第一个元素，），如果等于，则跳转至第3步
 	cmp	p12, p10		// wrap if bucket == buckets
+    //--- 定位到最后一个元素（即第一个bucket）
 	b.eq	3f
+    //--- 从x12（即p12 buckets首地址）- 实际需要平移的内存大小BUCKET_SIZE，得到得到第二个bucket元素，imp-sel分别存入p17-p9，即向前查找
 	ldp	p17, p9, [x12, #-BUCKET_SIZE]!	// {imp, sel} = *--bucket
+    //--- 跳转至第1步，继续对比 sel 与 cmd
 	b	1b			// loop
 
 3:	// wrap: p12 = first bucket, w11 = mask
@@ -310,22 +335,31 @@ LLookupStart$1:
 
 	// Clone scanning loop to miss instead of hang when cache is corrupt.
 	// The slow path may detect any corruption and halt later.
-
+//--- 再查找一遍缓存()
+//--- 拿到x12（即p12）bucket中的 imp-sel 分别存入 p17-p9
 	ldp	p17, p9, [x12]		// {imp, sel} = *bucket
+//--- 比较 sel 与 p1（传入的参数cmd）
 1:	cmp	p9, p1			// if (bucket->sel != _cmd)
+    //--- 如果不相等，即走到第二步
 	b.ne	2f			//     scan more
+    //--- 如果相等 即命中，直接返回imp
 	CacheHit $0			// call or return imp
 	
 2:	// not hit: p12 = not-hit bucket
+    //--- 如果一直找不到，则CheckMiss
 	CheckMiss $0			// miss if bucket->sel == 0
+    //--- 判断p12（下标对应的bucket） 是否 等于 p10（buckets数组第一个元素）-- 表示前面已经没有了，但是还是没有找到
 	cmp	p12, p10		// wrap if bucket == buckets
 	b.eq	3f
+    //--- 从x12（即p12 buckets首地址）- 实际需要平移的内存大小BUCKET_SIZE，得到得到第二个bucket元素，imp-sel分别存入p17-p9，即向前查找
 	ldp	p17, p9, [x12, #-BUCKET_SIZE]!	// {imp, sel} = *--bucket
+    //--- 跳转至第1步，继续对比 sel 与 cmd
 	b	1b			// loop
 
 LLookupEnd$1:
 LLookupRecover$1:
 3:	// double wrap
+    //--- 跳转至JumpMiss 因为是normal ，跳转至__objc_msgSend_uncached
 	JumpMiss $0
 
 .endmacro
@@ -353,19 +387,20 @@ _objc_debug_taggedpointer_ext_classes:
 	.fill 256, 8, 0
 #endif
 
+// 进入 _objc_msgSend 「MSGSEND00」 进入    一共  00   01   02   03  三步，这里很简单
 	ENTRY _objc_msgSend
 	UNWIND _objc_msgSend, NoFrame
 
-	cmp	p0, #0			// nil check and tagged pointer check
+	cmp	p0, #0			// 「MSGSEND01」 检查 入参是否为 nil 或者 tagged pointer
 #if SUPPORT_TAGGED_POINTERS
 	b.le	LNilOrTagged		//  (MSB tagged pointer looks negative)
 #else
 	b.eq	LReturnZero
 #endif
 	ldr	p13, [x0]		// p13 = isa
-	GetClassFromIsa_p16 p13		// p16 = class
+	GetClassFromIsa_p16 p13		// p16 = class   // 「MSGSEND02」通过isa 拿到 class 放在 p16
 LGetIsaDone:
-	// calls imp or objc_msgSend_uncached
+	// calls imp or objc_msgSend_uncached // 「MSGSEND03」 调用  cacheLookUp NORMAL
 	CacheLookup NORMAL, _objc_msgSend
 
 #if SUPPORT_TAGGED_POINTERS
@@ -540,8 +575,8 @@ LLookup_Nil:
 	STATIC_ENTRY __objc_msgSend_uncached
 	UNWIND __objc_msgSend_uncached, FrameWithNoSaves
 
-	// THIS IS NOT A CALLABLE C FUNCTION
-	// Out-of-band p16 is the class to search
+    // 这可不是可被调用的C函数
+    // 带外的p16：是要搜索的类
 	
 	MethodTableLookup
 	TailCallFunctionPointer x17
@@ -552,8 +587,8 @@ LLookup_Nil:
 	STATIC_ENTRY __objc_msgLookup_uncached
 	UNWIND __objc_msgLookup_uncached, FrameWithNoSaves
 
-	// THIS IS NOT A CALLABLE C FUNCTION
-	// Out-of-band p16 is the class to search
+    // 这可不是可被调用的C函数
+    // 带外的p16：是要搜索的类
 	
 	MethodTableLookup
 	ret

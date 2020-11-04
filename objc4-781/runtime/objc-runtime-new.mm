@@ -439,12 +439,10 @@ dataSegmentsContain(Class cls)
 
 /***********************************************************************
 * isKnownClass
-* Return true if the class is known to the runtime (located within the
-* shared cache, within the data segment of a loaded image, or has been
-* allocated with obj_allocateClassPair).
+* 如果运行时已知该类（位于共享缓存中，
+* 已加载图像的数据段中或已使用 obj_allocateClassPair 进行分配），则返回true。
 *
-* The result of this operation is cached on the class in a "witness"
-* value that is cheaply checked in the fastpath.
+* 此操作的结果以“见证”值缓存在类上，该值在快速路径中更廉价地检查。
 **********************************************************************/
 ALWAYS_INLINE
 static bool
@@ -484,8 +482,7 @@ addClassTableEntry(Class cls, bool addMeta = true)
 
 /***********************************************************************
 * checkIsKnownClass
-* Checks the given class against the list of all known classes. Dies
-* with a fatal error if the class is not known.
+* 根据所有已知类的列表检查给定的类。 如果该类未知，则 fatal error。
 * Locking: runtimeLock must be held by the caller.
 **********************************************************************/
 ALWAYS_INLINE
@@ -1369,9 +1366,9 @@ attachCategories(Class cls, const locstamped_category_t *cats_list, uint32_t cat
 
 /***********************************************************************
 * methodizeClass
-* Fixes up cls's method list, protocol list, and property list.
-* Attaches any outstanding categories.
-* Locking: runtimeLock must be held by the caller
+* 修复 cls 的 method list, protocol list 和 property list.
+* 附加上所有的外部的 categories.
+* 锁定：runtimeLock必须由调用方持有
 **********************************************************************/
 static void methodizeClass(Class cls, Class previously)
 {
@@ -2073,15 +2070,13 @@ static Class getMaybeUnrealizedNonMetaClass(Class metacls, id inst)
 
 
 /***********************************************************************
-* class_initialize.  Send the '+initialize' message on demand to any
-* uninitialized class. Force initialization of superclasses first.
-* inst is an instance of cls, or nil. Non-nil is better for performance.
-* Returns the class pointer. If the class was unrealized then 
-* it may be reallocated.
+* class_initialize.  按需向任何未初始化的类发送“+initialize”消息。
+* 首先强制初始化超类。inst是cls或nil的一个实例。非零对性能更好。
+* 返回类指针。如果类未实现，则可能会重新分配。
 * Locking: 
-*   runtimeLock must be held by the caller
-*   This function may drop the lock.
-*   On exit the lock is re-acquired or dropped as requested by leaveLocked.
+*   调用方必须持有 runtimeLock
+*   *此功能可能会解除锁定。
+*   退出时，根据leaveLocked的请求重新获取或删除锁。
 **********************************************************************/
 static Class initializeAndMaybeRelock(Class cls, id inst,
                                       mutex_t& lock, bool leaveLocked)
@@ -2094,11 +2089,11 @@ static Class initializeAndMaybeRelock(Class cls, id inst,
         return cls;
     }
 
-    // Find the non-meta class for cls, if it is not already one.
-    // The +initialize message is sent to the non-meta class object.
+    // 找到cls的非元类（如果它还没有）。
+    //  +initialize消息被发送到非元类对象。
     Class nonmeta = getMaybeUnrealizedNonMetaClass(cls, inst);
 
-    // Realize the non-meta class if necessary.
+    // 必要时实现非元类。
     if (nonmeta->isRealized()) {
         // nonmeta is cls, which was already realized
         // OR nonmeta is distinct, but is already realized
@@ -2106,13 +2101,13 @@ static Class initializeAndMaybeRelock(Class cls, id inst,
         lock.unlock();
     } else {
         nonmeta = realizeClassMaybeSwiftAndUnlock(nonmeta, lock);
-        // runtimeLock is now unlocked
-        // fixme Swift can't relocate the class today,
-        // but someday it will:
+        // runtimeLock现在已解锁
+        // fixme Swift今天无法重新定位该类，但总有一天它会：
+
         cls = object_getClass(nonmeta);
     }
 
-    // runtimeLock is now unlocked, for +initialize dispatch
+    // runtimeLock 现在已解锁，用于+initialize dispatch
     ASSERT(nonmeta->isRealized());
     initializeNonMetaClass(nonmeta);
 
@@ -2475,11 +2470,10 @@ static void reconcileInstanceVariables(Class cls, Class supercls, const class_ro
 
 /***********************************************************************
 * realizeClassWithoutSwift
-* Performs first-time initialization on class cls, 
-* including allocating its read-write data.
-* Does not perform any Swift-side initialization.
-* Returns the real class structure for the class. 
-* Locking: runtimeLock must be write-locked by the caller
+* 对类 cls 进行首次初始化，包括分配其 rw 的数据。
+* 不执行任何Swift端初始化。
+* 返回该类的真实类结构。
+* 锁定：runtimeLock必须由调用方写锁定
 **********************************************************************/
 static Class realizeClassWithoutSwift(Class cls, Class previously)
 {
@@ -2493,18 +2487,18 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
     if (cls->isRealized()) return cls;
     ASSERT(cls == remapClass(cls));
 
-    // fixme verify class is not in an un-dlopened part of the shared cache?
+    // fixme 验证类不是在共享高速缓存的未dlopened部分？
 
     auto ro = (const class_ro_t *)cls->data();
     auto isMeta = ro->flags & RO_META;
     if (ro->flags & RO_FUTURE) {
-        // This was a future class. rw data is already allocated.
+        // 这是将来的类结构. rw 以已经分配好了
         rw = cls->data();
         ro = cls->data()->ro();
         ASSERT(!isMeta);
         cls->changeInfo(RW_REALIZED|RW_REALIZING, RW_FUTURE);
     } else {
-        // Normal class. Allocate writeable class data.
+        // Normal class. 分配可写的类数据。
         rw = objc::zalloc<class_rw_t>();
         rw->set_ro(ro);
         rw->flags = RW_REALIZED|RW_REALIZING|isMeta;
@@ -2515,8 +2509,8 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
     if (isMeta) cls->cache.setBit(FAST_CACHE_META);
 #endif
 
-    // Choose an index for this class.
-    // Sets cls->instancesRequireRawIsa if indexes no more indexes are available
+    // 选择此类的索引。
+    // 如果没有更多索引可用，则设置cls-> instancesRequireRawIsa
     cls->chooseClassArrayIndex();
 
     if (PrintConnecting) {
@@ -2527,45 +2521,44 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
                      cls->isSwiftLegacy() ? "(pre-stable swift)" : "");
     }
 
-    // Realize superclass and metaclass, if they aren't already.
-    // This needs to be done after RW_REALIZED is set above, for root classes.
-    // This needs to be done after class index is chosen, for root metaclasses.
-    // This assumes that none of those classes have Swift contents,
-    //   or that Swift's initializers have already been called.
-    //   fixme that assumption will be wrong if we add support
-    //   for ObjC subclasses of Swift classes.
+    // 接下来是实现超类和元类（如果尚未实现的话）。
+    // 对于根类，需要在上面设置了RW_REALIZED之后执行此操作。
+    // 对于根元类，需要在选择类索引之后执行此操作。
+    // 这假定这些类都不包含Swift内容，或者已经调用了Swift的初始化程序。
+    //  fixme如果我们添加对Swift类的ObjC子类的支持，则假设将是错误的。
     supercls = realizeClassWithoutSwift(remapClass(cls->superclass), nil);
     metacls = realizeClassWithoutSwift(remapClass(cls->ISA()), nil);
 
 #if SUPPORT_NONPOINTER_ISA
     if (isMeta) {
-        // Metaclasses do not need any features from non pointer ISA
+        // 元类不需要非指针 ISA 的任何功能
+        // 这样为类在 objc_retain/objc_release 提供便捷。
         // This allows for a faspath for classes in objc_retain/objc_release.
         cls->setInstancesRequireRawIsa();
     } else {
-        // Disable non-pointer isa for some classes and/or platforms.
-        // Set instancesRequireRawIsa.
+        // 在某些类和/或平台上禁用 nonPointer 的 isa。
+        // 设置instanceRequireRawIsa。
         bool instancesRequireRawIsa = cls->instancesRequireRawIsa();
         bool rawIsaIsInherited = false;
         static bool hackedDispatch = false;
 
         if (DisableNonpointerIsa) {
-            // Non-pointer isa disabled by environment or app SDK version
+            // Non-pointer isa 被环境或应用程序SDK版本禁用
             instancesRequireRawIsa = true;
         }
         else if (!hackedDispatch  &&  0 == strcmp(ro->name, "OS_object"))
         {
-            // hack for libdispatch et al - isa also acts as vtable pointer
+            // 对于LIbDebug等的黑客攻击——ISA也充当VTABLE指针
             hackedDispatch = true;
             instancesRequireRawIsa = true;
         }
         else if (supercls  &&  supercls->superclass  &&
                  supercls->instancesRequireRawIsa())
         {
-            // This is also propagated by addSubclass()
-            // but nonpointer isa setup needs it earlier.
-            // Special case: instancesRequireRawIsa does not propagate
-            // from root class to root metaclass
+
+            //这也由addSubclass（）传播
+            //但非指针式isa安装程序需要更早。
+            //特殊情况：instancesRequireRawIsa不从根类传播到根元类
             instancesRequireRawIsa = true;
             rawIsaIsInherited = true;
         }
@@ -2577,18 +2570,18 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
 // SUPPORT_NONPOINTER_ISA
 #endif
 
-    // Update superclass and metaclass in case of remapping
+    // 在重新映射时更新超类和元类
     cls->superclass = supercls;
     cls->initClassIsa(metacls);
 
-    // Reconcile instance variable offsets / layout.
-    // This may reallocate class_ro_t, updating our ro variable.
+    // 协调实例变量偏移/布局。
+    // 这可能会重新分配 class_ro_t, 更新 ro 变量
     if (supercls  &&  !isMeta) reconcileInstanceVariables(cls, supercls, ro);
 
-    // Set fastInstanceSize if it wasn't set already.
+    // 设置fastInstanceSize（如果尚未设置）。
     cls->setInstanceSize(ro->instanceSize);
 
-    // Copy some flags from ro to rw
+    // 复制一些标志 from ro to rw
     if (ro->flags & RO_HAS_CXX_STRUCTORS) {
         cls->setHasCxxDtor();
         if (! (ro->flags & RO_HAS_CXX_DTOR_ONLY)) {
@@ -2596,22 +2589,21 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
         }
     }
     
-    // Propagate the associated objects forbidden flag from ro or from
-    // the superclass.
+    // 从ro或超类传播相关的objects forbidden标志。
     if ((ro->flags & RO_FORBIDS_ASSOCIATED_OBJECTS) ||
         (supercls && supercls->forbidsAssociatedObjects()))
     {
         rw->flags |= RW_FORBIDS_ASSOCIATED_OBJECTS;
     }
 
-    // Connect this class to its superclass's subclass lists
+    // 将这个类连接到它的超类的子类列表
     if (supercls) {
         addSubclass(supercls, cls);
     } else {
         addRootClass(cls);
     }
 
-    // Attach categories
+    // 把 categorie 们也加过来
     methodizeClass(cls, previously);
 
     return cls;
@@ -2739,14 +2731,14 @@ static Class realizeSwiftClass(Class cls)
 
 /***********************************************************************
 * realizeClassMaybeSwift (MaybeRelock / AndUnlock / AndLeaveLocked)
-* Realize a class that might be a Swift class.
-* Returns the real class structure for the class. 
+* 实现一个可能是Swift类的类。.
+* 返回该类的真实类结构。
 * Locking: 
-*   runtimeLock must be held on entry
-*   runtimeLock may be dropped during execution
-*   ...AndUnlock function leaves runtimeLock unlocked on exit
-*   ...AndLeaveLocked re-acquires runtimeLock if it was dropped
-* This complication avoids repeated lock transitions in some cases.
+*   runtimeLock必须在输入时保持
+*   执行过程中可能会丢失runtimeLock
+*   ...And Unlock函数使runtimeLock在退出时处于未锁定状态
+*   ...And LeaveLocked重新获取runtimeLock（如果已删除）
+* 这种复杂性避免了在某些情况下重复的锁转换。
 **********************************************************************/
 static Class
 realizeClassMaybeSwiftMaybeRelock(Class cls, mutex_t& lock, bool leaveLocked)
@@ -2754,19 +2746,17 @@ realizeClassMaybeSwiftMaybeRelock(Class cls, mutex_t& lock, bool leaveLocked)
     lock.assertLocked();
 
     if (!cls->isSwiftStable_ButAllowLegacyForNow()) {
-        // Non-Swift class. Realize it now with the lock still held.
-        // fixme wrong in the future for objc subclasses of swift classes
+        // Non-Swift class. Realize 现在执行到这里还拿着锁呢
+        // fixme swift 类的 objc 子类将来会出错
         realizeClassWithoutSwift(cls, nil);
         if (!leaveLocked) lock.unlock();
     } else {
-        // Swift class. We need to drop locks and call the Swift
-        // runtime to initialize it.
+        // Swift class. 需要扔掉锁，调用 Swift 运行时对其进行初始化。
         lock.unlock();
         cls = realizeSwiftClass(cls);
-        ASSERT(cls->isRealized());    // callback must have provoked realization
+        ASSERT(cls->isRealized());    // 回调一定调用了实现，没有的话报错
         if (leaveLocked) lock.lock();
     }
-
     return cls;
 }
 
@@ -5835,7 +5825,7 @@ method_lists_contains_any(method_list_t * const *mlists, method_list_t * const *
 }
 
 /***********************************************************************
- * getMethodNoSuper_nolock
+ * getMethodNoSuper_nolock   没有锁所以在外面调用之前加了 runtime 的互斥锁
  * fixme
  * Locking: runtimeLock must be read- or write-locked by the caller
  **********************************************************************/
@@ -6081,15 +6071,15 @@ log_and_fill_cache(Class cls, IMP imp, SEL sel, id receiver, Class implementer)
 
 /***********************************************************************
 * lookUpImpOrForward.
-* The standard IMP lookup. 
-* Without LOOKUP_INITIALIZE: tries to avoid +initialize (but sometimes fails)
-* Without LOOKUP_CACHE: skips optimistic unlocked lookup (but uses cache elsewhere)
-* Most callers should use LOOKUP_INITIALIZE and LOOKUP_CACHE
-* inst is an instance of cls or a subclass thereof, or nil if none is known. 
-*   If cls is an un-initialized metaclass then a non-nil inst is faster.
-* May return _objc_msgForward_impcache. IMPs destined for external use 
-*   must be converted to _objc_msgForward or _objc_msgForward_stret.
-*   If you don't want forwarding at all, use LOOKUP_NIL.
+* 标准的 IMP 查找流程的.
+* 不包括 LOOKUP_INITIALIZE: 尝试去避免 +initialize (但是有时候会失败)
+* 不包括 LOOKUP_CACHE: skips optimistic unlocked lookup (but uses cache elsewhere)
+* 大多数调用者应该使用 LOOKUP_INITIALIZE 和 LOOKUP_CACHE
+* inst 是 cls 或其子类的实例, 如果未知，则为nil。.
+*   如果 cls 是未初始化的元类，则非 null 实例会更快。
+* 可能会返回_objc_msgForward_impcache。
+* 供外部使用的IMP必须转换为_objc_msgForward或_objc_msgForward_stret。
+* 如果根本不想转发，请使用LOOKUP_NIL。
 **********************************************************************/
 IMP lookUpImpOrForward(id inst, SEL sel, Class cls, int behavior)
 {
@@ -6105,51 +6095,44 @@ IMP lookUpImpOrForward(id inst, SEL sel, Class cls, int behavior)
         if (imp) goto done_nolock;
     }
 
-    // runtimeLock is held during isRealized and isInitialized checking
-    // to prevent races against concurrent realization.
+    // runtimeLock在isRealized和isInitialized检查期间保持，
+    // 以防止与并发实现竞争。
 
-    // runtimeLock is held during method search to make
-    // method-lookup + cache-fill atomic with respect to method addition.
-    // Otherwise, a category could be added but ignored indefinitely because
-    // the cache was re-filled with the old value after the cache flush on
-    // behalf of the category.
+    // 因为考虑到有方法的添加，所以在方法的搜索过程中，
+    // 要添加 runtimeLock：用来保证 methodLookup 和 cacheFill 的原子性
+    
+    // 否则，category 的方法可能在添加后永久地被忽略
+    // 因为有可能在category添加方法之后，旧方法马上进行了方法缓存
+//    （相当于以后每次都会去执行缓存的旧方法，不会找到category添加的新方法）
 
     runtimeLock.lock();
 
-    // We don't want people to be able to craft a binary blob that looks like
-    // a class but really isn't one and do a CFI attack.
+    //  我们不希望人们能够制作看起来像类但实际上不是一个二进制二进制Blob并进行CFI攻击。
     //
-    // To make these harder we want to make sure this is a class that was
-    // either built into the binary or legitimately registered through
-    // objc_duplicateClass, objc_initializeClassPair or objc_allocateClassPair.
+    //  为了使这些操作更困难，我们希望确保这是一个内置于二进制文件中或通过 objc_duplicateClass ， objc_initializeClassPair 或 objc_allocateClassPair 合法注册的类。
     //
-    // TODO: this check is quite costly during process startup.
+    // TODO: 在流程启动期间，此检查的成本很高。
     checkIsKnownClass(cls);
 
     if (slowpath(!cls->isRealized())) {
         cls = realizeClassMaybeSwiftAndLeaveLocked(cls, runtimeLock);
-        // runtimeLock may have been dropped but is now locked again
+        // runtimeLock 可能已被删除，但现在再次被锁定
     }
 
     if (slowpath((behavior & LOOKUP_INITIALIZE) && !cls->isInitialized())) {
         cls = initializeAndLeaveLocked(cls, inst, runtimeLock);
-        // runtimeLock may have been dropped but is now locked again
+        // runtimeLock 可能已被删除，但现在再次被锁定
 
-        // If sel == initialize, class_initialize will send +initialize and 
-        // then the messenger will send +initialize again after this 
-        // procedure finishes. Of course, if this is not being called 
-        // from the messenger then it won't happen. 2778172
+        // 如果sel == initialize，则class_initialize将发送+ initialize，然后在此过程完成后，Messenger将再次发送+ initialize。 当然，如果未从Messenger调用此命令，则不会发生。. 2778172
     }
 
     runtimeLock.assertLocked();
     curClass = cls;
 
-    // The code used to lookpu the class's cache again right after
-    // we take the lock but for the vast majority of the cases
-    // evidence shows this is a miss most of the time, hence a time loss.
+    // 在我们获取锁之后，用于重新查找类的缓存的代码很快就出现了，
+    // 但是在绝大多数情况下，证据表明这在大多数情况下都是未命中的，因此会浪费时间。
     //
-    // The only codepath calling into this without having performed some
-    // kind of cache lookup is class_getInstanceMethod().
+    // 没有执行某种缓存查找的唯一调用此方法的代码路径是 class_getInstanceMethod（）。
 
     for (unsigned attempts = unreasonableClassCount();;) {
         // curClass method list.
@@ -6160,8 +6143,8 @@ IMP lookUpImpOrForward(id inst, SEL sel, Class cls, int behavior)
         }
 
         if (slowpath((curClass = curClass->superclass) == nil)) {
-            // No implementation found, and method resolver didn't help.
-            // Use forwarding.
+            // 找不到实现，方法解析器也无济于事
+            // 使用 forwarding.
             imp = forward_imp;
             break;
         }
@@ -6202,10 +6185,11 @@ IMP lookUpImpOrForward(id inst, SEL sel, Class cls, int behavior)
     return imp;
 }
 
+//下面这个方法，只是为了给构造函数和析构函数使用，在 cls 里面找 sel
 /***********************************************************************
 * lookupMethodInClassAndLoadCache.
-* Like lookUpImpOrForward, but does not search superclasses.
-* Caches and returns objc_msgForward if the method is not found in the class.
+* Like lookUpImpOrForward, 但是不去 superclass 里找.
+* 如果类里没有找到方法，缓存并返回 objc_msgForward
 **********************************************************************/
 IMP lookupMethodInClassAndLoadCache(Class cls, SEL sel)
 {
@@ -6214,24 +6198,26 @@ IMP lookupMethodInClassAndLoadCache(Class cls, SEL sel)
 
     // fixme this is incomplete - no resolver, +initialize - 
     // but it's only used for .cxx_construct/destruct so we don't care
+    // 这个断言，证明了这个方法，只是为了给构造函数和析构函数使用
+    // 只要不是在cls 里面寻找 ".cxx_construct" 和 ".cxx_destruct" 这两个sel，就报错
     ASSERT(sel == SEL_cxx_construct  ||  sel == SEL_cxx_destruct);
 
-    // Search cache first.
+    // 先去查找缓存
     imp = cache_getImp(cls, sel);
     if (imp) return imp;
 
-    // Cache miss. Search method list.
-
+    // 缓存没有命中，去寻找 method list
+    // 这里的这个锁应该使用的是 互斥锁
     mutex_locker_t lock(runtimeLock);
 
     meth = getMethodNoSuper_nolock(cls, sel);
 
     if (meth) {
-        // Hit in method list. Cache it.
+        // 找到方法，缓存并返回找到的 imp
         cache_fill(cls, sel, meth->imp, nil);
         return meth->imp;
     } else {
-        // Miss in method list. Cache objc_msgForward.
+        // 类里没有找到方法，缓存并返回 objc_msgForward
         cache_fill(cls, sel, _objc_msgForward_impcache, nil);
         return _objc_msgForward_impcache;
     }
@@ -7506,10 +7492,9 @@ objc_constructInstance(Class cls, void *bytes)
 /***********************************************************************
 * class_createInstance
 * fixme
-* Locking: none
+* 不需要加锁
 *
-* Note: this function has been carefully written so that the fastpath
-* takes no branch.
+* Note: 此函数已经过精心的编写，因此 fastPath 不会有分支
 **********************************************************************/
 static ALWAYS_INLINE id
 _class_createInstanceFromZone(Class cls, size_t extraBytes, void *zone,
@@ -7518,31 +7503,36 @@ _class_createInstanceFromZone(Class cls, size_t extraBytes, void *zone,
                               size_t *outAllocatedSize = nil)
 {
     ASSERT(cls->isRealized());
-
-    // Read class's info bits all at once for performance
+    // 官方注释：一次读取类的信息位以提高性能
+    // 这里三个值：
+    // hasCxxCtor：是否有C++ 的 Construct 构造函数
+    // hasCxxDtor：是否有C++ 的 destruct  析构函数
+    // fast      ：从类的cache中查，类的实例化是否需要 原始的isa
     bool hasCxxCtor = cxxConstruct && cls->hasCxxCtor();
     bool hasCxxDtor = cls->hasCxxDtor();
     bool fast = cls->canAllocNonpointer();
     size_t size;
-    // 1:要开辟多少内存
+    // 1 : 字节对齐机制：计算出相关的分配所需内存空间的大小，右边箭头展开调用
     size = cls->instanceSize(extraBytes);
     if (outAllocatedSize) *outAllocatedSize = size;
 
     id obj;
     if (zone) {
+        // oc 2.0 没有 zone
         obj = (id)malloc_zone_calloc((malloc_zone_t *)zone, 1, size);
     } else {
-        // 2;怎么去申请内存
+        // 2 : 根据第一步计算所需空间，向系统开辟内存
         obj = (id)calloc(1, size);
     }
     if (slowpath(!obj)) {
+        // 3：根据分配的内存情况管理对象
         if (construct_flags & OBJECT_CONSTRUCT_CALL_BADALLOC) {
             return _objc_callBadAllocHandler(cls);
         }
         return nil;
     }
 
-    // 3: ?
+    // 4： 需要再初始化Isa指针
     if (!zone && fast) {
         obj->initInstanceIsa(cls, hasCxxDtor);
     } else {
@@ -7571,7 +7561,10 @@ id
 _objc_rootAllocWithZone(Class cls, malloc_zone_t *zone __unused)
 {
     // allocWithZone under __OBJC2__ ignores the zone parameter
-    return _class_createInstanceFromZone(cls, 0, nil,
+    // allocWithZone 方法在 OC 2.0 之后隐藏了 zone 参数
+    return _class_createInstanceFromZone(cls,
+                                         0,
+                                         nil,
                                          OBJECT_CONSTRUCT_CALL_BADALLOC);
 }
 
@@ -7662,14 +7655,14 @@ object_copyFromZone(id oldObj, size_t extraBytes, void *zone)
 #endif
 
 
-/***********************************************************************
+/************************************
 * objc_destructInstance
 * Destroys an instance without freeing memory. 
 * Calls C++ destructors.
 * Calls ARC ivar cleanup.
 * Removes associative references.
 * Returns `obj`. Does nothing if `obj` is nil.
-**********************************************************************/
+*************************************/
 void *objc_destructInstance(id obj) 
 {
     if (obj) {
@@ -7678,7 +7671,7 @@ void *objc_destructInstance(id obj)
         bool assoc = obj->hasAssociatedObjects();
 
         // This order is important.
-        if (cxx) object_cxxDestruct(obj);
+        if (cxx) object_cxxDestruct(obj);  
         if (assoc) _object_remove_assocations(obj);
         obj->clearDeallocating();
     }
@@ -7687,11 +7680,11 @@ void *objc_destructInstance(id obj)
 }
 
 
-/***********************************************************************
+/************************
 * object_dispose
 * fixme
 * Locking: none
-**********************************************************************/
+************************/
 id 
 object_dispose(id obj)
 {

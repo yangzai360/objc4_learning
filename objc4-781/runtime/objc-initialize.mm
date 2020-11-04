@@ -488,8 +488,8 @@ void performForkChildInitialize(Class cls, Class supercls)
 
 
 /***********************************************************************
-* class_initialize.  Send the '+initialize' message on demand to any
-* uninitialized class. Force initialization of superclasses first.
+* class_initialize.  按需向任何未初始化的类发送“+initialize”消息。
+* 首先强制初始化超类。
 **********************************************************************/
 void initializeNonMetaClass(Class cls)
 {
@@ -498,8 +498,8 @@ void initializeNonMetaClass(Class cls)
     Class supercls;
     bool reallyInitialize = NO;
 
-    // Make sure super is done initializing BEFORE beginning to initialize cls.
-    // See note about deadlock above.
+    // 在开始初始化cls之前，确保super已完成初始化。
+    // 参见上面关于死锁的注释。
     supercls = cls->superclass;
     if (supercls  &&  !supercls->isInitialized()) {
         initializeNonMetaClass(supercls);

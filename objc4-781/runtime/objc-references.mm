@@ -210,10 +210,10 @@ _object_set_associative_reference(id object, const void *key, id value, uintptr_
     association.releaseHeldValue();
 }
 
-// Unlike setting/getting an associated reference,
-// this function is performance sensitive because of
-// raw isa objects (such as OS Objects) that can't track
-// whether they have associated objects.
+// 与设置/获取关联的引用不同，
+// 此函数对性能敏感，
+// 因为原始的isa对象（例如OS对象）
+// 无法跟踪它们是否具有关联的对象。
 void
 _object_remove_assocations(id object)
 {
