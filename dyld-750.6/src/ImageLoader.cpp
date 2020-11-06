@@ -577,10 +577,9 @@ bool ImageLoader::decrementDlopenReferenceCount()
 }
 
 
-// <rdar://problem/14412057> upward dylib initializers can be run too soon
-// To handle dangling dylibs which are upward linked but not downward, all upward linked dylibs
-// have their initialization postponed until after the recursion through downward dylibs
-// has completed.
+// <rdar://problem/14412057>向上dylib初始化程序可能运行得太早
+//为了处理向上链接但不向下链接的悬空控件，
+//所有向上链接的控件都将其初始化推迟到完成向下控件的递归操作之后。
 void ImageLoader::processInitializers(const LinkContext& context, mach_port_t thisThread,
 									 InitializerTimingList& timingInfo, ImageLoader::UninitedUpwards& images)
 {
@@ -588,12 +587,12 @@ void ImageLoader::processInitializers(const LinkContext& context, mach_port_t th
 	ImageLoader::UninitedUpwards upsBuffer[maxImageCount];
 	ImageLoader::UninitedUpwards& ups = upsBuffer[0];
 	ups.count = 0;
-	// Calling recursive init on all images in images list, building a new list of
-	// uninitialized upward dependencies.
+	// 在图像列表中的所有图像上调用递归init，
+	// 以建立未初始化的向上依赖关系的新列表。
 	for (uintptr_t i=0; i < images.count; ++i) {
 		images.imagesAndPaths[i].first->recursiveInitialization(context, thisThread, images.imagesAndPaths[i].second, timingInfo, ups);
 	}
-	// If any upward dependencies remain, init them.
+	// 如果还有任何向上的依赖关系，请将其初始化。
 	if ( ups.count > 0 )
 		processInitializers(context, thisThread, timingInfo, ups);
 }
@@ -606,6 +605,7 @@ void ImageLoader::runInitializers(const LinkContext& context, InitializerTimingL
 	ImageLoader::UninitedUpwards up;
 	up.count = 1;
 	up.imagesAndPaths[0] = { this, this->getPath() };
+// 实际处理的就是下面这行 processInitializers
 	processInitializers(context, thisThread, timingInfo, up);
 	context.notifyBatch(dyld_image_state_initialized, false);
 	mach_port_deallocate(mach_task_self(), thisThread);
@@ -1563,17 +1563,18 @@ void ImageLoader::recursiveInitialization(const LinkContext& context, mach_port_
 {
 	recursive_lock lock_info(this_thread);
 	recursiveSpinLock(lock_info);
+	// recursive Spin Lock  就是 递归自旋锁
 
 	if ( fState < dyld_image_state_dependents_initialized-1 ) {
 		uint8_t oldState = fState;
-		// break cycles
+		// 打破递归循环
 		fState = dyld_image_state_dependents_initialized-1;
 		try {
-			// initialize lower level libraries first
+			// 首先初始化低层库
 			for(unsigned int i=0; i < libraryCount(); ++i) {
 				ImageLoader* dependentImage = libImage(i);
 				if ( dependentImage != NULL ) {
-					// don't try to initialize stuff "above" me yet
+					// 不要尝试在我“上方”进行任何初始化操作
 					if ( libIsUpward(i) ) {
 						uninitUps.imagesAndPaths[uninitUps.count] = { dependentImage, libPath(i) };
 						uninitUps.count++;
@@ -1584,20 +1585,22 @@ void ImageLoader::recursiveInitialization(const LinkContext& context, mach_port_
                 }
 			}
 			
-			// record termination order
+			// record termination order 记录终止的订单
 			if ( this->needsTermination() )
 				context.terminationRecorder(this);
 
 			// let objc know we are about to initialize this image
+			// 让objc知道我们即将初始化此 Image
 			uint64_t t1 = mach_absolute_time();
 			fState = dyld_image_state_dependents_initialized;
 			oldState = fState;
 			context.notifySingle(dyld_image_state_dependents_initialized, this, &timingInfo);
 			
-			// initialize this image
+			// initialize 这个 image
 			bool hasInitializers = this->doInitialization(context);
 
-			// let anyone know we finished initializing this image
+			// 让任何人知道我们已完成初始化此图像
+
 			fState = dyld_image_state_initialized;
 			oldState = fState;
 			context.notifySingle(dyld_image_state_initialized, this, NULL);
@@ -1608,14 +1611,14 @@ void ImageLoader::recursiveInitialization(const LinkContext& context, mach_port_
 			}
 		}
 		catch (const char* msg) {
-			// this image is not initialized
+			// 这个 image 没有 initialized
 			fState = oldState;
 			recursiveSpinUnLock();
 			throw;
 		}
 	}
 	
-	recursiveSpinUnLock();
+	recursiveSpinUnLock(); // 解除递归自旋锁
 }
 
 

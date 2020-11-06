@@ -53,15 +53,14 @@ typedef void (*_dyld_objc_notify_unmapped)(const char* path, const struct mach_h
 
 
 //
-// Note: only for use by objc runtime
-// Register handlers to be called when objc images are mapped, unmapped, and initialized.
-// Dyld will call back the "mapped" function with an array of images that contain an objc-image-info section.
-// Those images that are dylibs will have the ref-counts automatically bumped, so objc will no longer need to
-// call dlopen() on them to keep them from being unloaded.  During the call to _dyld_objc_notify_register(),
-// dyld will call the "mapped" function with already loaded objc images.  During any later dlopen() call,
-// dyld will also call the "mapped" function.  Dyld will call the "init" function when dyld would be called
-// initializers in that image.  This is when objc calls any +load methods in that image.
-//
+// 注意：只供objc运行时使用
+// 注册要在映射、取消映射和初始化 objc 映像时调用的处理程序。
+// Dyld 将用一个包含 objc 图像信息部分的图像数组来调用“mapped”函数。
+// 那些是 dylibs 的图像的 ref 计数将自动被缓冲，因此 objc 将不再需要
+// 对它们调用 dlopen() 以防止它们被卸载。在调用 _dyld_objc_notify_register() 期间，
+// dyld 将使用已经加载的 objc 图像调用 “mapped” 函数。在以后的任何 dlopen() 调用中，
+// dyld 还将调用 “mapped” 函数。Dyld 将在调用 Dyld 时调用 “init” 函数
+// 图像中的初始化器。这时 objc 调用该映像中的任何 +load 方法。
 void _dyld_objc_notify_register(_dyld_objc_notify_mapped    mapped,
                                 _dyld_objc_notify_init      init,
                                 _dyld_objc_notify_unmapped  unmapped);

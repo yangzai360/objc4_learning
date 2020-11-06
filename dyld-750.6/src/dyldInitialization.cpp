@@ -110,37 +110,36 @@ static void rebaseDyld(const dyld3::MachOLoaded* dyldMH)
 
 
 //
-//  This is code to bootstrap dyld.  This work in normally done for a program by dyld and crt.
-//  In dyld we have to do this manually.
+// 这是引导dyld的代码。这项工作通常由dyld和crt完成。
+// 在dyld，我们必须手动操作。
 //
 uintptr_t start(const dyld3::MachOLoaded* appsMachHeader, int argc, const char* argv[],
 				const dyld3::MachOLoaded* dyldsMachHeader, uintptr_t* startGlue)
 {
 
-    // Emit kdebug tracepoint to indicate dyld bootstrap has started <rdar://46878536>
+    // 发出kdebug跟踪点以指示dyld引导已启动 <rdar://46878536>
     dyld3::kdebug_trace_dyld_marker(DBG_DYLD_TIMING_BOOTSTRAP_START, 0, 0, 0, 0);
 
-	// if kernel had to slide dyld, we need to fix up load sensitive locations
-	// we have to do this before using any global variables
+	// 如果内核必须滑动dyld，我们需要在使用任何全局变量之前修复负载敏感的位置
     rebaseDyld(dyldsMachHeader);
 
-	// kernel sets up env pointer to be just past end of agv array
+	// 内核将env指针设置为刚好超过agv数组的末尾
 	const char** envp = &argv[argc+1];
 	
-	// kernel sets up apple pointer to be just past end of envp array
+	// 内核将apple指针设置为刚好超过envp数组的末尾
 	const char** apple = envp;
 	while(*apple != NULL) { ++apple; }
 	++apple;
 
-	// set up random value for stack canary
+	// 为 stack canary 设置随机值
 	__guard_setup(apple);
 
 #if DYLD_INITIALIZER_SUPPORT
-	// run all C++ initializers inside dyld
+	// 在DyLD中运行所有C++ initializers
 	runDyldInitializers(argc, argv, envp, apple);
 #endif
 
-	// now that we are done bootstrapping dyld, call dyld's main
+	// 既然我们已经开始引导dyld了，call dyld 的 main 函数
 	uintptr_t appsSlide = appsMachHeader->getSlide();
 	return dyld::_main((macho_header*)appsMachHeader, appsSlide, argc, argv, envp, apple, startGlue);
 }

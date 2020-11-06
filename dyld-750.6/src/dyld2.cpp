@@ -938,6 +938,7 @@ static void notifySingle(dyld_image_states state, const ImageLoader* image, Imag
 	if ( (state == dyld_image_state_dependents_initialized) && (sNotifyObjCInit != NULL) && image->notifyObjC() ) {
 		uint64_t t0 = mach_absolute_time();
 		dyld3::ScopedTimer timer(DBG_DYLD_TIMING_OBJC_INIT, (uint64_t)image->machHeader(), 0, 0);
+		// 获取 mach Header
 		(*sNotifyObjCInit)(image->getRealPath(), image->machHeader());
 		uint64_t t1 = mach_absolute_time();
 		uint64_t t2 = mach_absolute_time();
@@ -1557,10 +1558,10 @@ static void runAllStaticTerminators(void* extra)
 
 void initializeMainExecutable()
 {
-	// record that we've reached this step
+	// 记录我们已经到了这一步
 	gLinkContext.startedInitializingMainExecutable = true;
 
-	// run initialzers for any inserted dylibs
+	// 为所有插入的dylib运行initialzer
 	ImageLoader::InitializerTimingList initializerTimes[allImagesCount()];
 	initializerTimes[0].count = 0;
 	const size_t rootCount = sImageRoots.size();
@@ -1570,14 +1571,14 @@ void initializeMainExecutable()
 		}
 	}
 	
-	// run initializers for main executable and everything it brings up 
+	// 为主要的可执行文件及其带来的一切运行初始化程序
 	sMainExecutable->runInitializers(gLinkContext, initializerTimes[0]);
 	
-	// register cxa_atexit() handler to run static terminators in all loaded images when this process exits
+	// 当此进程退出时，注册cxa_atexit（）处理程序以在所有加载的图像中运行静态终止符
 	if ( gLibSystemHelpers != NULL ) 
 		(*gLibSystemHelpers->cxa_atexit)(&runAllStaticTerminators, NULL, NULL);
 
-	// dump info if requested
+	// 如果要求转储信息
 	if ( sEnv.DYLD_PRINT_STATISTICS )
 		ImageLoader::printStatistics((unsigned int)allImagesCount(), initializerTimes[0]);
 	if ( sEnv.DYLD_PRINT_STATISTICS_DETAILS )
@@ -2982,8 +2983,8 @@ bool isCompatibleMachO(const uint8_t* firstPage, const char* path)
 
 
 
-// The kernel maps in main executable before dyld gets control.  We need to 
-// make an ImageLoader* for the already mapped in main executable.
+// 在dyld得到控制之前，内核会映射到主要可执行文件中。
+// 我们需要为已经映射到主要可执行文件中的文件制作一个 ImageLoader *
 static ImageLoaderMachO* instantiateFromLoadedImage(const macho_header* mh, uintptr_t slide, const char* path)
 {
 	// try mach-o loader
@@ -4527,17 +4528,17 @@ void registerImageStateBatchChangeHandler(dyld_image_states state, dyld_image_st
 
 void registerObjCNotifiers(_dyld_objc_notify_mapped mapped, _dyld_objc_notify_init init, _dyld_objc_notify_unmapped unmapped)
 {
-	// record functions to call
+	// 要调用的 record 函数
 	sNotifyObjCMapped	= mapped;
 	sNotifyObjCInit		= init;
 	sNotifyObjCUnmapped = unmapped;
 
-	// call 'mapped' function with all images mapped so far
+	// 调用“mapped”函数，迄今为止已映射所有图像
 	try {
 		notifyBatchPartial(dyld_image_state_bound, true, NULL, false, true);
 	}
 	catch (const char* msg) {
-		// ignore request to abort during registration
+		// 忽略注册过程中中止的请求
 	}
 
 	// <rdar://problem/32209809> call 'init' function on all images already init'ed (below libSystem)
@@ -6183,11 +6184,9 @@ static ClosureMode getPlatformDefaultClosureMode() {
 }
 
 //
-// Entry point for dyld.  The kernel loads dyld and jumps to __dyld_start which
-// sets up some registers and call this function.
+// dyld的入口点。 内核加载dyld并跳转到__dyld_start，后者设置一些寄存器并调用此函数。
 //
-// Returns address of main() in target program which __dyld_start jumps to
-//
+//返回__dyld_start跳转到的目标程序中main（）的地址
 uintptr_t
 _main(const macho_header* mainExecutableMH, uintptr_t mainExecutableSlide, 
 		int argc, const char* argv[], const char* envp[], const char* apple[], 
@@ -6355,7 +6354,9 @@ _main(const macho_header* mainExecutableMH, uintptr_t mainExecutableSlide,
 	else
 #endif
 	{
+//** 检查环境变量 // 把数组参数传递进函数体，然后for循环判断环境变量
 		checkEnvironmentVariables(envp);
+//** 默认未初始化的后备路径
 		defaultUninitializedFallbackPaths(envp);
 	}
 #if __MAC_OS_X_VERSION_MIN_REQUIRED
@@ -6404,7 +6405,7 @@ _main(const macho_header* mainExecutableMH, uintptr_t mainExecutableSlide,
 		sClosureMode = ClosureMode::On;
 	getHostInfo(mainExecutableMH, mainExecutableSlide);
 
-	// load shared cache
+	// load shared cache  加载 shared cache 检查共享缓存区域是否开启可用
 	checkSharedRegionDisable((dyld3::MachOLoaded*)mainExecutableMH, mainExecutableSlide);
 	if ( gLinkContext.sharedRegionMode != ImageLoader::kDontUseSharedRegion ) {
 #if TARGET_OS_SIMULATOR
@@ -6574,6 +6575,7 @@ reloadAllImages:
 
 		CRSetCrashLogMessage(sLoadingCrashMessage);
 		// instantiate ImageLoader for main executable
+//从 ImageLoader 变成一个 「主要可执行文件」，使用 instantiateFromLoadedImage 这个方法来生成的
 		sMainExecutable = instantiateFromLoadedImage(mainExecutableMH, mainExecutableSlide, sExecPath);
 		gLinkContext.mainExecutable = sMainExecutable;
 		gLinkContext.mainExecutableCodeSigned = hasCodeSignatureLoadCommand(mainExecutableMH);
@@ -6638,24 +6640,24 @@ reloadAllImages:
 				gProcessInfo->dyldPath = strdup(dyldPathBuffer);
 		}
 
-		// load any inserted libraries
+		// 加载任何插入的库
 		if	( sEnv.DYLD_INSERT_LIBRARIES != NULL ) {
 			for (const char* const* lib = sEnv.DYLD_INSERT_LIBRARIES; *lib != NULL; ++lib) 
 				loadInsertedDylib(*lib);
 		}
-		// record count of inserted libraries so that a flat search will look at 
-		// inserted libraries, then main, then others.
+		// 记录插入的库的数量，以便统一搜索将先查看插入的库，然后是main，然后是其他。
 		sInsertedDylibCount = sAllImages.size()-1;
 
-		// link main executable
+		// 链接 上面的那个 「主可执行文件」
 		gLinkContext.linkingMainExecutable = true;
 #if SUPPORT_ACCELERATE_TABLES
 		if ( mainExcutableAlreadyRebased ) {
-			// previous link() on main executable has already adjusted its internal pointers for ASLR
-			// work around that by rebasing by inverse amount
+			// 「主可执行文件」上的先前link（）已为ASLR调整了其内部指针
+			//通过反基础变基来解决此问题
 			sMainExecutable->rebase(gLinkContext, -mainExecutableSlide);
 		}
 #endif
+//**！link sMainExecutable「就是主可执行文件」
 		link(sMainExecutable, sEnv.DYLD_BIND_AT_LAUNCH, true, ImageLoader::RPathChain(NULL, NULL), -1);
 		sMainExecutable->setNeverUnloadRecursive();
 		if ( sMainExecutable->forceFlat() ) {
@@ -6663,18 +6665,19 @@ reloadAllImages:
 			gLinkContext.prebindUsage = ImageLoader::kUseNoPrebinding;
 		}
 
-		// link any inserted libraries
-		// do this after linking main executable so that any dylibs pulled in by inserted 
-		// dylibs (e.g. libSystem) will not be in front of dylibs the program uses
+		// 链接任何插入的库
+		// 在链接主可执行文件之后执行此操作，以便通过插入插入的任何dylib
+		// dylib（例如libSystem）不在程序使用的dylib之前
 		if ( sInsertedDylibCount > 0 ) {
 			for(unsigned int i=0; i < sInsertedDylibCount; ++i) {
 				ImageLoader* image = sAllImages[i+1];
+//**！link 动态库
 				link(image, sEnv.DYLD_BIND_AT_LAUNCH, true, ImageLoader::RPathChain(NULL, NULL), -1);
 				image->setNeverUnloadRecursive();
 			}
 			if ( gLinkContext.allowInterposing ) {
-				// only INSERTED libraries can interpose
-				// register interposing info after all inserted libraries are bound so chaining works
+				// 只允许动态库插入
+				// 绑定所有插入的库后，注册插入信息，以便链接工作
 				for(unsigned int i=0; i < sInsertedDylibCount; ++i) {
 					ImageLoader* image = sAllImages[i+1];
 					image->registerInterposing(gLinkContext);
@@ -6746,6 +6749,7 @@ reloadAllImages:
 		}
 		
 		// <rdar://problem/12186933> do weak binding only after all inserted images linked
+		// 仅在所有插入的 image link 完成后   执行   「弱符号绑定」
 		sMainExecutable->weakBind(gLinkContext);
 		gLinkContext.linkingMainExecutable = false;
 
@@ -6757,7 +6761,7 @@ reloadAllImages:
 		if ( ! gRunInitializersOldWay ) 
 			initializeMainExecutable(); 
 	#else
-		// run all initializers
+		// 执行   所有的   initializers
 		initializeMainExecutable(); 
 	#endif
 
@@ -6778,17 +6782,17 @@ reloadAllImages:
 		else
 #endif
 		{
-			// find entry point for main executable
+			// 查找「主要可执行文件」的入口点
 			result = (uintptr_t)sMainExecutable->getEntryFromLC_MAIN();
 			if ( result != 0 ) {
-				// main executable uses LC_MAIN, we need to use helper in libdyld to call into main()
+				// 主要可执行文件使用LC_MAIN，我们需要在libdyld中使用helper来调用main（）
 				if ( (gLibSystemHelpers != NULL) && (gLibSystemHelpers->version >= 9) )
 					*startGlue = (uintptr_t)gLibSystemHelpers->startGlueToCallExit;
 				else
 					halt("libdyld.dylib support not present for LC_MAIN");
 			}
 			else {
-				// main executable uses LC_UNIXTHREAD, dyld needs to let "start" in program set up for main()
+				// 主可执行文件使用LC_UNIXTHREAD，dyld需要在为main（）设置的程序中“启动”
 				result = (uintptr_t)sMainExecutable->getEntryFromLC_UNIXTHREAD();
 				*startGlue = 0;
 			}

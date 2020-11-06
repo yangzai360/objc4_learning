@@ -564,7 +564,7 @@ void ImageLoaderMachO::sniffLoadCommands(const macho_header* mh, const char* pat
 
 
 
-// create image for main executable
+// 为 main executable「主要可执行文件」创建映像
 ImageLoader* ImageLoaderMachO::instantiateMainExecutable(const macho_header* mh, uintptr_t slide, const char* path, const LinkContext& context)
 {
 	//dyld::log("ImageLoader=%ld, ImageLoaderMachO=%ld, ImageLoaderMachOClassic=%ld, ImageLoaderMachOCompressed=%ld\n",
@@ -575,7 +575,7 @@ ImageLoader* ImageLoaderMachO::instantiateMainExecutable(const macho_header* mh,
 	const linkedit_data_command* codeSigCmd;
 	const encryption_info_command* encryptCmd;
 	sniffLoadCommands(mh, path, false, &compressed, &segCount, &libCount, context, &codeSigCmd, &encryptCmd);
-	// instantiate concrete class based on content of load commands
+	// 根据加载命令的内容实例化具体类
 	if ( compressed ) 
 		return ImageLoaderMachOCompressed::instantiateMainExecutable(mh, slide, path, segCount, libCount, context);
 	else
@@ -2255,16 +2255,18 @@ void ImageLoaderMachO::doImageInit(const LinkContext& context)
 		for (uint32_t i = 0; i < cmd_count; ++i) {
 			switch (cmd->cmd) {
 				case LC_ROUTINES_COMMAND:
+					// 这里通过 addressShift 得到函数方法
 					Initializer func = (Initializer)(((struct macho_routines_command*)cmd)->init_address + fSlide);
 #if __has_feature(ptrauth_calls)
 					func = (Initializer)__builtin_ptrauth_sign_unauthenticated((void*)func, ptrauth_key_asia, 0);
+					//在这里  通过 for 循环 完成了所有的 加载方法的调用
 #endif
-					// <rdar://problem/8543820&9228031> verify initializers are in image
+					// <rdar://problem/8543820&9228031> 验证初始化程序在 Image 中
 					if ( ! this->containsAddress(stripPointer((void*)func)) ) {
 						dyld::throwf("initializer function %p not in mapped image for %s\n", func, this->getPath());
 					}
 					if ( ! dyld::gProcessInfo->libSystemInitialized ) {
-						// <rdar://problem/17973316> libSystem initializer must run first
+						// <rdar://problem/17973316> libSystem initializer 必须第一个运行
 						dyld::throwf("-init function in image (%s) that does not link with libSystem.dylib\n", this->getPath());
 					}
 					if ( context.verboseInit )
@@ -2423,9 +2425,11 @@ bool ImageLoaderMachO::doInitialization(const LinkContext& context)
 {
 	CRSetCrashLogMessage2(this->getPath());
 
-	// mach-o has -init and static initializers
+	// mach-o 具有 -init 和 静态初始值设定项
 	doImageInit(context);
 	doModInitFunctions(context);
+	
+	// 这里又是两个调用，一个 doImageInit  一个 doModInitFunctions
 	
 	CRSetCrashLogMessage2(NULL);
 	
