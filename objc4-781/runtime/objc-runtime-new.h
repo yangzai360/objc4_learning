@@ -904,18 +904,23 @@ class list_array_tt {
         }
         else if (!list  &&  addedCount == 1) {
             // 0 lists -> 1 list
+            //addLists 是一个二维数组，元素就是 method_t
             list = addedLists[0];
         } 
         else {
             // 1 list -> many lists
             List* oldList = list;
             uint32_t oldCount = oldList ? 1 : 0;
-            uint32_t newCount = oldCount + addedCount;
+            uint32_t newCount = oldCount + addedCount; // 计算新的list的容量
             setArray((array_t *)malloc(array_t::byteSize(newCount)));
             array()->count = newCount;
             if (oldList) array()->lists[addedCount] = oldList;
             memcpy(array()->lists, addedLists, 
                    addedCount * sizeof(array()->lists[0]));
+            //memcpy 内存拷贝，拷贝过去
+            // 这段操作把心加进来的list全部放在最前面。这样的原因是：
+            // msgSend 的满速查找的时候，用的是二分法，
+            // 然后查到符合的sel会向前查到到最前面符合的sel返回imp
         }
     }
 
@@ -1084,6 +1089,8 @@ public:
         return extAlloc(ro, true);
     }
 
+    // 这里读取 ro 的时候，下面的代码要判断该类是否有运行时来判断
+    // 如果有if条件成立，从rwe里面读取。如果没有直接getro
     const class_ro_t *ro() const {
         auto v = get_ro_or_rwe();
         if (slowpath(v.is<class_rw_ext_t *>())) {
@@ -1170,31 +1177,29 @@ public:
     void setData(class_rw_t *newData)
     {
         ASSERT(!data()  ||  (newData->flags & (RW_REALIZING | RW_FUTURE)));
-        // Set during realization or construction only. No locking needed.
-        // Use a store-release fence because there may be concurrent
-        // readers of data and data's contents.
+        // 仅在实现或执行期间设置。不需要锁定。
+        // 由于数据存储可能会出现并发的数据围栏和数据存储。
         uintptr_t newBits = (bits & ~FAST_DATA_MASK) | (uintptr_t)newData;
         atomic_thread_fence(memory_order_release);
         bits = newBits;
     }
 
-    // Get the class's ro data, even in the presence of concurrent realization.
-    // fixme this isn't really safe without a compiler barrier at least
-    // and probably a memory barrier when realizeClass changes the data field
+    // 获取类的ro数据，即使在并发实现的情况下也是如此。
+    //修正：如果没有编译器屏障（至少，在realizeClass更改数据字段时可能还存在内存障碍），这是不安全的
     const class_ro_t *safe_ro() {
         class_rw_t *maybe_rw = data();
         if (maybe_rw->flags & RW_REALIZED) {
-            // maybe_rw is rw
+            // maybe_rw 是 rw
             return maybe_rw->ro();
         } else {
-            // maybe_rw is actually ro
+            // maybe_rw 是真实的 ro
             return (class_ro_t *)maybe_rw;
         }
     }
 
     void setClassArrayIndex(unsigned Idx) {
 #if SUPPORT_INDEXED_ISA
-        // 0 is unused as then we can rely on zero-initialisation from calloc.
+        // 0 未使用，因为我们可以依赖 calloc 的零初始化。
         ASSERT(Idx > 0);
         data()->index = Idx;
 #endif

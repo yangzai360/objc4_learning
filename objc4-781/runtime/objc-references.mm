@@ -101,9 +101,8 @@ public:
 typedef DenseMap<const void *, ObjcAssociation> ObjectAssociationMap;
 typedef DenseMap<DisguisedPtr<objc_object>, ObjectAssociationMap> AssociationsHashMap;
 
-// class AssociationsManager manages a lock / hash table singleton pair.
-// Allocating an instance acquires the lock
-
+// 类关联管理器管理锁/哈希表单联对。
+// 分配实例获取锁
 class AssociationsManager {
     using Storage = ExplicitInitDenseMap<DisguisedPtr<objc_object>, ObjectAssociationMap>;
     static Storage _mapStorage;
@@ -158,32 +157,37 @@ _object_get_associative_reference(id object, const void *key)
 void
 _object_set_associative_reference(id object, const void *key, id value, uintptr_t policy)
 {
-    // This code used to work when nil was passed for object and key. Some code
-    // probably relies on that to not crash. Check and handle it explicitly.
+    // 这段代码通常在为object和key传递nil时工作。
+    // 有些代码可能依赖于它来避免崩溃。检查并明确处理。
     // rdar://problem/44094390
     if (!object && !value) return;
 
     if (object->getIsa()->forbidsAssociatedObjects())
         _objc_fatal("objc_setAssociatedObject called on instance (%p) of class %s which does not allow associated objects", object, object_getClassName(object));
 
+    // 使用 DisguisedPtr 包装了一下对象
     DisguisedPtr<objc_object> disguised{(objc_object *)object};
+    // 把 policy 和 value 帮在了一起
     ObjcAssociation association{policy, value};
 
-    // retain the new value (if any) outside the lock.
+    // 保留锁外部的新值（如果有）
+    // 如果 policy 是 retain 的话就对 value 执行 retain 操作
+    // 如果 policy 是 copy 的话就调用 value 的 copy 方法。除此之外不做任何处理。
     association.acquireValue();
 
     {
         AssociationsManager manager;
         AssociationsHashMap &associations(manager.get());
+        // 这里呢是一个 关联管理者 可以去读一个 AssociationsHashMap 这个表是唯一的。
 
         if (value) {
             auto refs_result = associations.try_emplace(disguised, ObjectAssociationMap{});
             if (refs_result.second) {
-                /* it's the first association we make */
+                /* 这是我们第一次调用 Associated， 这里应该是去更新isa union上面关联对象字段*/
                 object->setHasAssociatedObjects();
             }
 
-            /* establish or replace the association */
+            /* 建立或更换Association */
             auto &refs = refs_result.first->second;
             auto result = refs.try_emplace(key, std::move(association));
             if (!result.second) {

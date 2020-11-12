@@ -896,11 +896,11 @@ class StripedMap {
 };
 
 
-// DisguisedPtr<T> acts like pointer type T*, except the 
-// stored value is disguised to hide it from tools like `leaks`.
-// nil is disguised as itself so zero-filled memory works as expected, 
-// which means 0x80..00 is also disguised as itself but we don't care.
-// Note that weak_entry_t knows about this encoding.
+// DisguisedPtr<T> 的作用类似于指针类型T*，
+// 只是存储的值被伪装成对“leaks”之类的工具隐藏起来。
+// nil被伪装成它自己，所以零填充内存可以像预期的那样工作，
+// 这意味着0x80..00也伪装成它自己，但我们不在乎。
+// 请注意，weak_entry_t 知道此编码。
 template <typename T>
 class DisguisedPtr {
     uintptr_t value;
@@ -942,8 +942,9 @@ class DisguisedPtr {
         return undisguise(value)[i];
     }
 
-    // pointer arithmetic operators omitted 
-    // because we don't currently use them anywhere
+
+    // 省略指针算术运算符
+    // 因为我们目前没有在任何地方使用它们
 };
 
 // fixme type id is weird and not identical to objc_object*

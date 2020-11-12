@@ -1183,25 +1183,25 @@ fixupMethodList(method_list_t *mlist, bool bundleCopy, bool sort)
     runtimeLock.assertLocked();
     ASSERT(!mlist->isFixedUp());
 
-    // fixme lock less in attachMethodLists ?
-    // dyld3 may have already uniqued, but not sorted, the list
+    // 在附件方法列表中减少锁定？
+    // dyld3可能已经对列表进行了唯一化，但尚未排序
     if (!mlist->isUniqued()) {
         mutex_locker_t lock(selLock);
     
-        // Unique selectors in list.
+        // 列表中的唯一选择器。
         for (auto& meth : *mlist) {
             const char *name = sel_cname(meth.name);
             meth.name = sel_registerNameNoLock(name, bundleCopy);
         }
     }
 
-    // Sort by selector address.
+    // 按 selector 的内存地址排序。
     if (sort) {
         method_t::SortBySELAddress sorter;
         std::stable_sort(mlist->begin(), mlist->end(), sorter);
     }
     
-    // Mark method list as uniqued and sorted
+    // 将方法列表标记为唯一且已排序
     mlist->setFixedUp();
 }
 
@@ -1214,18 +1214,17 @@ prepareMethodLists(Class cls, method_list_t **addedLists, int addedCount,
 
     if (addedCount == 0) return;
 
-    // There exist RR/AWZ/Core special cases for some class's base methods.
-    // But this code should never need to scan base methods for RR/AWZ/Core:
-    // default RR/AWZ/Core cannot be set before setInitialized().
-    // Therefore we need not handle any special cases here.
+    //某些类的基方法存在RR/AWZ/Core特殊情况。
+    //但此代码不需要扫描RR/AWZ/Core的基本方法：
+    //无法在setInitialized（）之前设置默认RR/AWZ/Core。
+    //所以我们这里不需要处理任何特殊情况。
     if (baseMethods) {
         ASSERT(cls->hasCustomAWZ() && cls->hasCustomRR() && cls->hasCustomCore());
     }
 
-    // Add method lists to array.
-    // Reallocate un-fixed method lists.
-    // The new methods are PREPENDED to the method list array.
-
+    //向数组添加方法列表。
+    //重新分配未固定的方法列表。
+    //新方法被添加到方法列表数组中。
     for (int i = 0; i < addedCount; i++) {
         method_list_t *mlist = addedLists[i];
         ASSERT(mlist);
@@ -1236,9 +1235,8 @@ prepareMethodLists(Class cls, method_list_t **addedLists, int addedCount,
         }
     }
 
-    // If the class is initialized, then scan for method implementations
-    // tracked by the class's flags. If it's not initialized yet,
-    // then objc_class::setInitialized() will take care of it.
+//如果类已初始化，则扫描由类的标志跟踪的方法实现。
+//如果它还没有初始化，那么 objc_class::setInitialized() 将处理它。
     if (cls->isInitialized()) {
         objc::AWZScanner::scanAddedMethodLists(cls, addedLists, addedCount);
         objc::RRScanner::scanAddedMethodLists(cls, addedLists, addedCount);
@@ -1280,9 +1278,8 @@ class_rw_t::extAlloc(const class_ro_t *ro, bool deepCopy)
     return rwe;
 }
 
-// Attach method lists and properties and protocols from categories to a class.
-// Assumes the categories in cats are all loaded and sorted by load order, 
-// oldest categories first.
+//将方法列表、属性和协议从类别附加到类。
+//假设cats中的类别都是按加载顺序加载和排序的，最旧的类别优先。
 static void
 attachCategories(Class cls, const locstamped_category_t *cats_list, uint32_t cats_count,
                  int flags)
@@ -1297,14 +1294,13 @@ attachCategories(Class cls, const locstamped_category_t *cats_list, uint32_t cat
     }
 
     /*
-     * Only a few classes have more than 64 categories during launch.
-     * This uses a little stack, and avoids malloc.
+     * 只有少数类在启动期间拥有超过64个类别。
+     * 这使用了一个小堆栈，避免了malloc。
      *
-     * Categories must be added in the proper order, which is back
-     * to front. To do that with the chunking, we iterate cats_list
-     * from front to back, build up the local buffers backwards,
-     * and call attachLists on the chunks. attachLists prepends the
-     * lists, so the final result is in the expected order.
+     * 类别必须按从后到前的顺序添加。为了实现这一点，
+     * 我们从前面到后面迭代 cats_list，向后构建本地缓冲区，
+     * 并在块上调用 attachlist。attachLists 预先处理列表，
+     * 因此最终结果按预期顺序排列。
      */
     constexpr uint32_t ATTACH_BUFSIZ = 64;
     method_list_t   *mlists[ATTACH_BUFSIZ];
@@ -1318,6 +1314,7 @@ attachCategories(Class cls, const locstamped_category_t *cats_list, uint32_t cat
     bool isMeta = (flags & ATTACH_METACLASS);
     auto rwe = cls->data()->extAllocIfNeeded();
 
+//    这里是 category 的 list 的来源
     for (uint32_t i = 0; i < cats_count; i++) {
         auto& entry = cats_list[i];
 
@@ -1353,7 +1350,9 @@ attachCategories(Class cls, const locstamped_category_t *cats_list, uint32_t cat
     }
 
     if (mcount > 0) {
+        // 跟之前的排序方法一样
         prepareMethodLists(cls, mlists + ATTACH_BUFSIZ - mcount, mcount, NO, fromBundle);
+        // 添加方法到类的里面去
         rwe->methods.attachLists(mlists + ATTACH_BUFSIZ - mcount, mcount);
         if (flags & ATTACH_EXISTING) flushCaches(cls);
     }
@@ -1379,13 +1378,13 @@ static void methodizeClass(Class cls, Class previously)
     auto ro = rw->ro();
     auto rwe = rw->ext();
 
-    // Methodizing for the first time
+    //第一次 Methodizing
     if (PrintConnecting) {
         _objc_inform("CLASS: methodizing class '%s' %s", 
                      cls->nameForLogging(), isMeta ? "(meta)" : "");
     }
 
-    // Install methods and properties that the class implements itself.
+    // 安装这个类自己实现的 methods and properties
     method_list_t *list = ro->baseMethods();
     if (list) {
         prepareMethodLists(cls, &list, 1, YES, isBundleClass(cls));
@@ -1402,10 +1401,10 @@ static void methodizeClass(Class cls, Class previously)
         rwe->protocols.attachLists(&protolist, 1);
     }
 
-    // Root classes get bonus method implementations if they don't have 
-    // them already. These apply before category replacements.
+    // 如果根类还没有方法实现，那么根类将获得额外的方法实现。
+    // 这些适用于类别替换之前。
     if (cls->isRootMetaclass()) {
-        // root metaclass
+        // 跟元类
         addMethod(cls, @selector(initialize), (IMP)&objc_noop_imp, "", NO);
     }
 
@@ -1415,9 +1414,9 @@ static void methodizeClass(Class cls, Class previously)
             objc::unattachedCategories.attachToClass(cls, previously,
                                                      ATTACH_METACLASS);
         } else {
-            // When a class relocates, categories with class methods
-            // may be registered on the class itself rather than on
-            // the metaclass. Tell attachToClass to look for those.
+            // 当一个类重新定位时，
+            // 具有类方法的类别可以在类本身而不是元类上注册。
+            // 告诉 attachToClass 找那些。
             objc::unattachedCategories.attachToClass(cls, previously,
                                                      ATTACH_CLASS_AND_METACLASS);
         }
@@ -1426,7 +1425,7 @@ static void methodizeClass(Class cls, Class previously)
                                              isMeta ? ATTACH_METACLASS : ATTACH_CLASS);
 
 #if DEBUG
-    // Debug: sanity-check all SELs; log method list contents
+    // Debug: 检查所有SELs；记录方法列表内容
     for (const auto& meth : rw->methods()) {
         if (PrintConnecting) {
             _objc_inform("METHOD %c[%s %s]", isMeta ? '+' : '-', 
@@ -2498,7 +2497,7 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
         ASSERT(!isMeta);
         cls->changeInfo(RW_REALIZED|RW_REALIZING, RW_FUTURE);
     } else {
-        // Normal class. 分配可写的类数据。
+        // 正常的 class. 分配可写的类数据。
         rw = objc::zalloc<class_rw_t>();
         rw->set_ro(ro);
         rw->flags = RW_REALIZED|RW_REALIZING|isMeta;
@@ -2521,11 +2520,12 @@ static Class realizeClassWithoutSwift(Class cls, Class previously)
                      cls->isSwiftLegacy() ? "(pre-stable swift)" : "");
     }
 
-    // 接下来是实现超类和元类（如果尚未实现的话）。
+    // 接下来是实现 SuperClass 和 MetaClass（如果尚未实现的话）。
     // 对于根类，需要在上面设置了RW_REALIZED之后执行此操作。
     // 对于根元类，需要在选择类索引之后执行此操作。
     // 这假定这些类都不包含Swift内容，或者已经调用了Swift的初始化程序。
     //  fixme如果我们添加对Swift类的ObjC子类的支持，则假设将是错误的。
+//！！！ 这里是一个递归结构，递归调用当前类的父类和元类。
     supercls = realizeClassWithoutSwift(remapClass(cls->superclass), nil);
     metacls = realizeClassWithoutSwift(remapClass(cls->ISA()), nil);
 
@@ -3609,13 +3609,9 @@ void _read_images(header_info **hList, uint32_t hCount, int totalClasses, int un
 
     ts.log("IMAGE TIMES: discover categories");
 
-    // Category discovery MUST BE Late to avoid potential races
-    // when other threads call the new category code before
-    // this thread finishes its fixups.
-
-    // +load handled by prepare_load_methods()
-
-    // Realize non-lazy classes (for +load methods and static instances)
+    // 当其他线程在该线程完成修正之前调用新的类别代码时，类别发现必须延迟，以避免潜在的争用。
+    // prepare_load_methods() 处理了 +load
+    //实现 non-lazy classes（对于+load方法和静态实例）
     for (EACH_HEADER) {
         classref_t const *classlist = 
             _getObjc2NonlazyClassList(hi, &count);
@@ -3631,9 +3627,8 @@ void _read_images(header_info **hList, uint32_t hCount, int totalClasses, int un
                                 "is not allowed to be non-lazy",
                                 cls->nameForLogging());
                 }
-                // fixme also disallow relocatable classes
-                // We can't disallow all Swift classes because of
-                // classes like Swift.__EmptyArrayStorage
+                // 也不允许重定位类
+                //我们不能因为像Swift这样的类而禁止所有Swift类
             }
             realizeClassWithoutSwift(cls, nil);
         }
@@ -3641,7 +3636,7 @@ void _read_images(header_info **hList, uint32_t hCount, int totalClasses, int un
 
     ts.log("IMAGE TIMES: realize non-lazy classes");
 
-    // Realize newly-resolved future classes, in case CF manipulates them
+    // 实现新解析的未来类，以防CF操纵它们
     if (resolvedFutureClasses) {
         for (i = 0; i < resolvedFutureClassCount; i++) {
             Class cls = resolvedFutureClasses[i];

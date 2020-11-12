@@ -279,8 +279,8 @@ BREAKPOINT_FUNCTION(
 
 
 // Begin synchronizing on 'obj'. 
-// Allocates recursive mutex associated with 'obj' if needed.
-// Returns OBJC_SYNC_SUCCESS once lock is acquired.  
+// 如果需要，alloc 一个与 obj 关联的递归互斥
+// 获取锁后返回OBJC_SYNC_SUCCESS
 int objc_sync_enter(id obj)
 {
     int result = OBJC_SYNC_SUCCESS;
@@ -320,8 +320,8 @@ BOOL objc_sync_try_enter(id obj)
 }
 
 
-// End synchronizing on 'obj'. 
-// Returns OBJC_SYNC_SUCCESS or OBJC_SYNC_NOT_OWNING_THREAD_ERROR
+// 结束 synchronizing(obj) .
+// 返回 OBJC_SYNC_SUCCESS 或者 OBJC_SYNC_NOT_OWNING_THREAD_ERROR
 int objc_sync_exit(id obj)
 {
     int result = OBJC_SYNC_SUCCESS;
@@ -339,8 +339,6 @@ int objc_sync_exit(id obj)
     } else {
         // @synchronized(nil) does nothing
     }
-	
-
     return result;
 }
 

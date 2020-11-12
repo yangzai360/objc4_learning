@@ -274,12 +274,12 @@ _dispatch_group_wake(dispatch_group_t dg, uint64_t dg_state, bool needs_release)
 void
 dispatch_group_leave(dispatch_group_t dg)
 {
-	// The value is incremented on a 64bits wide atomic so that the carry for
-	// the -1 -> 0 transition increments the generation atomically.
+	// 该值在64位宽的原子上递增，因此-1->0转换的进位以原子方式增加生成量。
 	uint64_t new_state, old_state = os_atomic_add_orig2o(dg, dg_state,
 			DISPATCH_GROUP_VALUE_INTERVAL, release);
 	uint32_t old_value = (uint32_t)(old_state & DISPATCH_GROUP_VALUE_MASK);
 
+	// 如果oldValue的值为1，则进行唤醒
 	if (unlikely(old_value == DISPATCH_GROUP_VALUE_1)) {
 		old_state += DISPATCH_GROUP_VALUE_INTERVAL;
 		do {
@@ -288,9 +288,9 @@ dispatch_group_leave(dispatch_group_t dg)
 				new_state &= ~DISPATCH_GROUP_HAS_WAITERS;
 				new_state &= ~DISPATCH_GROUP_HAS_NOTIFS;
 			} else {
-				// If the group was entered again since the atomic_add above,
-				// we can't clear the waiters bit anymore as we don't know for
-				// which generation the waiters are for
+				//如果组是从上面的原子符添加后再次进入的，
+				//我们就不能再清除waiters位了，
+				//因为我们不知道waiters是为哪一代服务的
 				new_state &= ~DISPATCH_GROUP_HAS_NOTIFS;
 			}
 			if (old_state == new_state) break;
@@ -308,14 +308,17 @@ dispatch_group_leave(dispatch_group_t dg)
 void
 dispatch_group_enter(dispatch_group_t dg)
 {
-	// The value is decremented on a 32bits wide atomic so that the carry
-	// for the 0 -> -1 transition is not propagated to the upper 32bits.
+	//该值在32位宽的原子上递减，以便进位
+	//对于0->-1转换不传播到高32位。
+	// dg -> dg_bits - 1
 	uint32_t old_bits = os_atomic_sub_orig2o(dg, dg_bits,
 			DISPATCH_GROUP_VALUE_INTERVAL, acquire);
 	uint32_t old_value = old_bits & DISPATCH_GROUP_VALUE_MASK;
 	if (unlikely(old_value == 0)) {
 		_dispatch_retain(dg); // <rdar://problem/22318411>
 	}
+	
+	// 如果你的enter次数大于最大值的时候，就会报下面的错误
 	if (unlikely(old_value == DISPATCH_GROUP_VALUE_MAX)) {
 		DISPATCH_CLIENT_CRASH(old_bits,
 				"Too many nested calls to dispatch_group_enter()");
@@ -332,13 +335,15 @@ _dispatch_group_notify(dispatch_group_t dg, dispatch_queue_t dq,
 
 	dsn->dc_data = dq;
 	_dispatch_retain(dq);
-
+	
+	// 从dg状态码，转成 os state
 	prev = os_mpsc_push_update_tail(os_mpsc(dg, dg_notify), dsn, do_next);
 	if (os_mpsc_push_was_empty(prev)) _dispatch_retain(dg);
 	os_mpsc_push_update_prev(os_mpsc(dg, dg_notify), prev, dsn, do_next);
 	if (os_mpsc_push_was_empty(prev)) {
 		os_atomic_rmw_loop2o(dg, dg_state, old_state, new_state, release, {
 			new_state = old_state | DISPATCH_GROUP_HAS_NOTIFS;
+			// 判断是否状态变成 0
 			if ((uint32_t)old_state == 0) {
 				os_atomic_rmw_loop_give_up({
 					return _dispatch_group_wake(dg, new_state, false);

@@ -1724,7 +1724,9 @@ _dispatch_sync_f_slow(dispatch_queue_class_t top_dqu, void *ctxt,
 		.dsc_waiter  = _dispatch_tid_self(),
 	};
 
+	// 重点： 压栈
 	_dispatch_trace_item_push(top_dq, &dsc);
+	// 死锁的核心代码
 	__DISPATCH_WAIT_FOR_QUEUE__(&dsc, dq);
 
 	if (dsc.dsc_func == NULL) {
@@ -1774,6 +1776,7 @@ static inline void
 _dispatch_barrier_sync_f_inline(dispatch_queue_t dq, void *ctxt,
 		dispatch_function_t func, uintptr_t dc_flags)
 {
+	// dispatch_tid 就是线程的 ID
 	dispatch_tid tid = _dispatch_tid_self();
 
 	if (unlikely(dx_metatype(dq) != _DISPATCH_LANE_TYPE)) {
@@ -1790,6 +1793,8 @@ _dispatch_barrier_sync_f_inline(dispatch_queue_t dq, void *ctxt,
 	//
 	// Global concurrent queues and queues bound to non-dispatch threads
 	// always fall into the slow case, see DISPATCH_ROOT_QUEUE_STATE_INIT_VALUE
+	
+	// 死锁
 	if (unlikely(!_dispatch_queue_try_acquire_barrier_sync(dl, tid))) {
 		return _dispatch_sync_f_slow(dl, ctxt, func, DC_FLAG_BARRIER, dl,
 				DC_FLAG_BARRIER | dc_flags);
@@ -1826,17 +1831,19 @@ static inline void
 _dispatch_sync_f_inline(dispatch_queue_t dq, void *ctxt,
 		dispatch_function_t func, uintptr_t dc_flags)
 {
+	// 宽度等于1，就是串行，触发了栅栏函数，return
 	if (likely(dq->dq_width == 1)) {
 		return _dispatch_barrier_sync_f(dq, ctxt, func, dc_flags);
 	}
-
+	
+	// 从这里开始：：：下面全部是并发的逻辑
 	if (unlikely(dx_metatype(dq) != _DISPATCH_LANE_TYPE)) {
 		DISPATCH_CLIENT_CRASH(0, "Queue type doesn't support dispatch_sync");
 	}
 
 	dispatch_lane_t dl = upcast(dq)._dl;
-	// Global concurrent queues and queues bound to non-dispatch threads
-	// always fall into the slow case, see DISPATCH_ROOT_QUEUE_STATE_INIT_VALUE
+	// 全局并发队列和绑定到非调度线程的队列总是属于慢速情况，
+	// 请参阅dispatch_ROOT_QUEUE_STATE_INIT_VALUE
 	if (unlikely(!_dispatch_queue_try_reserve_sync_width(dl))) {
 		return _dispatch_sync_f_slow(dl, ctxt, func, 0, dl, dc_flags);
 	}
@@ -2682,18 +2689,19 @@ _dispatch_queue_priority_inherit_from_target(dispatch_lane_class_t dq,
 	return tq;
 }
 
-
+// 创建队列的调用
 DISPATCH_NOINLINE
 static dispatch_queue_t
 _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 		dispatch_queue_t tq, bool legacy)
 {
+//	只有这个地方用低了 dqa, dqa 传入的时候制定了是串行队列还是并行队列
 	dispatch_queue_attr_info_t dqai = _dispatch_queue_attr_to_info(dqa);
 
 	//
 	// Step 1: Normalize arguments (qos, overcommit, tq)
 	//
-
+// 优先级处理
 	dispatch_qos_t qos = dqai.dqai_qos;
 #if !HAVE_PTHREAD_WORKQUEUE_QOS
 	if (qos == DISPATCH_QOS_USER_INTERACTIVE) {
@@ -2704,6 +2712,7 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 	}
 #endif // !HAVE_PTHREAD_WORKQUEUE_QOS
 
+// 处理一个异常
 	_dispatch_queue_attr_overcommit_t overcommit = dqai.dqai_overcommit;
 	if (overcommit != _dispatch_queue_attr_overcommit_unspecified && tq) {
 		if (tq->do_targetq) {
@@ -2712,6 +2721,7 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 		}
 	}
 
+// OVERCOMMIT 指令的允许和不允许的判断
 	if (tq && dx_type(tq) == DISPATCH_QUEUE_GLOBAL_ROOT_TYPE) {
 		// Handle discrepancies between attr and target queue, attributes win
 		if (overcommit == _dispatch_queue_attr_overcommit_unspecified) {
@@ -2735,14 +2745,16 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 	} else {
 		if (overcommit == _dispatch_queue_attr_overcommit_unspecified) {
 			// Serial queues default to overcommit!
+// overCommit：并发的话是 disable，串行是 enable
 			overcommit = dqai.dqai_concurrent ?
 					_dispatch_queue_attr_overcommit_disabled :
 					_dispatch_queue_attr_overcommit_enabled;
 		}
 	}
 	if (!tq) {
+		// tq 初始化
 		tq = _dispatch_get_root_queue(
-				qos == DISPATCH_QOS_UNSPECIFIED ? DISPATCH_QOS_DEFAULT : qos,
+				qos == DISPATCH_QOS_UNSPECIFIED ? DISPATCH_QOS_DEFAULT : qos, // 默认 4
 				overcommit == _dispatch_queue_attr_overcommit_enabled)->_as_dq;
 		if (unlikely(!tq)) {
 			DISPATCH_CLIENT_CRASH(qos, "Invalid queue attribute");
@@ -2750,7 +2762,7 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 	}
 
 	//
-	// Step 2: Initialize the queue
+	// Step 2: Initialize the queue 初始化队列
 	//
 
 	if (legacy) {
@@ -2763,8 +2775,11 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 	const void *vtable;
 	dispatch_queue_flags_t dqf = legacy ? DQF_MUTABLE : 0;
 	if (dqai.dqai_concurrent) {
+		// 通过这个 vtable 来区分并发和串行
 		vtable = DISPATCH_VTABLE(queue_concurrent);
 	} else {
+// 这个 dqai 上面获取的时候，如果attr 传递进来是NULL就代表串行队列，所以这个往下就是
+		//  DISPATCH_VTABLE(queue_serial);
 		vtable = DISPATCH_VTABLE(queue_serial);
 	}
 	switch (dqai.dqai_autorelease_frequency) {
@@ -2783,13 +2798,18 @@ _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 		}
 	}
 
+	// _dispatch_object_alloc 开辟内存
 	dispatch_lane_t dq = _dispatch_object_alloc(vtable,
 			sizeof(struct dispatch_lane_s));
+	
+	// dq 的 init 构造方法，得到大概的 dq
 	_dispatch_queue_init(dq, dqf, dqai.dqai_concurrent ?
 			DISPATCH_QUEUE_WIDTH_MAX : 1, DISPATCH_QUEUE_ROLE_INNER |
 			(dqai.dqai_inactive ? DISPATCH_QUEUE_INACTIVE : 0));
 
+	// 标签
 	dq->dq_label = label;
+	// 优先级
 	dq->dq_priority = _dispatch_priority_make((dispatch_qos_t)dqai.dqai_qos,
 			dqai.dqai_relpri);
 	if (overcommit == _dispatch_queue_attr_overcommit_enabled) {
@@ -2812,6 +2832,7 @@ dispatch_queue_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 	return _dispatch_lane_create_with_target(label, dqa, tq, false);
 }
 
+// 创建队列
 dispatch_queue_t
 dispatch_queue_create(const char *label, dispatch_queue_attr_t attr)
 {

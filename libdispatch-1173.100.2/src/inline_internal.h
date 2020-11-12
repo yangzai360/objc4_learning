@@ -1148,12 +1148,12 @@ _dispatch_queue_setter_assert_inactive(dispatch_queue_class_t dq)
 			"dispatch queue/source property setter called after activation");
 }
 
-// Note to later developers: ensure that any initialization changes are
-// made for statically allocated queues (i.e. _dispatch_main_q).
+//  以后的开发人员注意：确保对静态分配的队列进行了任何初始化更改(i.e. _dispatch_main_q).
 static inline dispatch_queue_class_t
 _dispatch_queue_init(dispatch_queue_class_t dqu, dispatch_queue_flags_t dqf,
 		uint16_t width, uint64_t initial_state_bits)
 {
+	// 把 dq 拿出来做处理
 	uint64_t dq_state = DISPATCH_QUEUE_STATE_INIT_VALUE(width);
 	dispatch_queue_t dq = dqu._dq;
 
@@ -1355,7 +1355,7 @@ _dispatch_queue_try_acquire_barrier_sync_and_suspend(dispatch_lane_t dq,
 			_dispatch_lock_value_from_tid(tid) |
 			(suspend_count * DISPATCH_QUEUE_SUSPEND_INTERVAL);
 	uint64_t old_state, new_state;
-
+	// 获取当前的状态，从底层获取、状态信息，当前队列，线程
 	return os_atomic_rmw_loop2o(dq, dq_state, old_state, new_state, acquire, {
 		uint64_t role = old_state & DISPATCH_QUEUE_ROLE_MASK;
 		if (old_state != (init | role)) {
@@ -1549,7 +1549,7 @@ _dispatch_queue_drain_try_unlock(dispatch_queue_t dq, uint64_t owned, bool done)
 // Multi Producer calls, can be used safely concurrently
 //
 
-// Returns true when the queue was empty and the head must be set
+// 当队列为空且必须设置标头时返回true
 #define os_mpsc_push_update_tail(Q, tail, _o_next)  ({ \
 		os_mpsc_node_type(Q) _tl = (tail); \
 		os_atomic_store2o(_tl, _o_next, NULL, relaxed); \
@@ -1921,6 +1921,8 @@ _dispatch_get_root_queue(dispatch_qos_t qos, bool overcommit)
 	if (unlikely(qos < DISPATCH_QOS_MIN || qos > DISPATCH_QOS_MAX)) {
 		DISPATCH_CLIENT_CRASH(qos, "Corrupted priority");
 	}
+	// 4-1 = 3
+	// 2*3 + 0/1 = 6或者7    根据 6或者7 来啊取模板创建
 	return &_dispatch_root_queues[2 * (qos - 1) + overcommit];
 }
 

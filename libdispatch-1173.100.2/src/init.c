@@ -418,8 +418,10 @@ extern struct dispatch_queue_attr_s _dispatch_queue_attr_concurrent
 dispatch_queue_attr_info_t
 _dispatch_queue_attr_to_info(dispatch_queue_attr_t dqa)
 {
+	//创建了一个空的结构体，如果后面是并行的话会执行下面的大部分逻辑
 	dispatch_queue_attr_info_t dqai = { };
 
+	// 串行队列传进来的是一个空的结构体，如果是串行队列就是空的
 	if (!dqa) return dqai;
 
 #if DISPATCH_VARIANT_STATIC
@@ -435,10 +437,13 @@ _dispatch_queue_attr_to_info(dispatch_queue_attr_t dqa)
 	}
 
 	size_t idx = (size_t)(dqa - _dispatch_queue_attrs);
+	// 苹果的一个位域的算法
+	//000 000000000 00000000000 0000 00 1
 
 	dqai.dqai_inactive = (idx % DISPATCH_QUEUE_ATTR_INACTIVE_COUNT);
 	idx /= DISPATCH_QUEUE_ATTR_INACTIVE_COUNT;
 
+	// 并发数量
 	dqai.dqai_concurrent = !(idx % DISPATCH_QUEUE_ATTR_CONCURRENCY_COUNT);
 	idx /= DISPATCH_QUEUE_ATTR_CONCURRENCY_COUNT;
 

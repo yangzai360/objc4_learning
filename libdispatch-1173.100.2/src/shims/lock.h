@@ -131,6 +131,7 @@ static inline bool
 _dispatch_lock_is_locked_by(dispatch_lock lock_value, dispatch_tid tid)
 {
 	// equivalent to _dispatch_lock_owner(lock_value) == tid
+	// ^ 异或运算法 两个相同就出现0，否则为1
 	return ((lock_value ^ tid) & DLOCK_OWNER_MASK) == 0;
 }
 
