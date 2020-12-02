@@ -35,14 +35,12 @@ int main(int argc, const char * argv[]) {
         
 //        NSObject *objc1 = [[NSObject alloc] init];
         {
-            printClassAllProperties(Fruit.class);
+//            printClassAllProperties(Fruit.class);
             Fruit *banana = [[Fruit alloc] init];
-            NSLog(@"Hello, World!%@", banana);
-            
-
         }
         
         NSLog(@"Hello, World!");
+        sleep(1);
     }
     return 0;
 }

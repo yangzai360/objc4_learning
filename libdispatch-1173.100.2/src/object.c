@@ -159,6 +159,7 @@ _os_object_allows_weak_reference(_os_object_t obj)
 void *
 _dispatch_object_alloc(const void *vtable, size_t size)
 {
+	//这里第一块是 OBJC1，不看跳过看下面的OC2
 #if OS_OBJECT_HAVE_OBJC1
 	const struct dispatch_object_vtable_s *_vtable = vtable;
 	dispatch_object_t dou;
@@ -166,6 +167,7 @@ _dispatch_object_alloc(const void *vtable, size_t size)
 	dou._do->do_vtable = vtable;
 	return dou._do;
 #else
+	// 实际 OBJC2 调用下面的这个方法，看名字就是 realized 的方法
 	return _os_object_alloc_realized(vtable, size);
 #endif
 }

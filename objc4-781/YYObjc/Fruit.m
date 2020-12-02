@@ -17,4 +17,8 @@
     NSLog(@"%@ ", __func__);
 }
 
+
+- (void)dealloc{
+    NSLog(@"custom dealloc");
+}
 @end

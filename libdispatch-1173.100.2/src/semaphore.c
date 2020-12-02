@@ -259,7 +259,7 @@ _dispatch_group_wake(dispatch_group_t dg, uint64_t dg_state, bool needs_release)
 			_dispatch_continuation_async(dsn_queue, dc,
 					_dispatch_qos_from_pp(dc->dc_priority), dc->dc_flags);
 			_dispatch_release(dsn_queue);
-		} while ((dc = next_dc));
+		} while ((dc = next_dc));  // 如果发现了 dc 就调用
 
 		refs++;
 	}

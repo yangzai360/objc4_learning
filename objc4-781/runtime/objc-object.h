@@ -598,7 +598,7 @@ objc_object::rootRelease(bool performDealloc, bool handleUnderflow)
             if (sideTableLocked) sidetable_unlock();
             return sidetable_release(performDealloc);
         }
-        // 不用检查 newisa.fast_rr; 已经调用过了任何RR的重写了
+        // 不用检查 newisa.fast_rr; 已经调用过了任何 RR 的重写了
         uintptr_t carry;
         newisa.bits = subc(newisa.bits, RC_ONE, 0, &carry);  // extra_rc--
         if (slowpath(carry)) {

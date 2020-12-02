@@ -1934,7 +1934,7 @@ DISPATCH_ALWAYS_INLINE
 static inline void
 _dispatch_queue_set_bound_thread(dispatch_queue_class_t dqu)
 {
-	// Tag thread-bound queues with the owning thread
+	// 使用所属线程标记绑定到线程的队列
 	dispatch_assert(_dispatch_queue_is_thread_bound(dqu));
 	uint64_t old_state, new_state;
 	os_atomic_rmw_loop2o(dqu._dq, dq_state, old_state, new_state, relaxed, {
@@ -2629,20 +2629,25 @@ _dispatch_continuation_init(dispatch_continuation_t dc,
 		dispatch_queue_class_t dqu, dispatch_block_t work,
 		dispatch_block_flags_t flags, uintptr_t dc_flags)
 {
+	// 1: 首先进行了 block 的拷贝
 	void *ctxt = _dispatch_Block_copy(work);
 
 	dc_flags |= DC_FLAG_BLOCK | DC_FLAG_ALLOCATED;
+	// unlikely : 小概率进入这个 if
 	if (unlikely(_dispatch_block_has_private_data(work))) {
 		dc->dc_flags = dc_flags;
+		// 2: 然后在 dc 的 ctxt 里面保存了这个block的拷贝。
 		dc->dc_ctxt = ctxt;
-		// will initialize all fields but requires dc_flags & dc_ctxt to be set
+		// 源： 将初始化所有字段，但需要提前设置 dc_flags & dc_ctxt
 		return _dispatch_continuation_init_slow(dc, dqu, flags);
 	}
 
+	// 2: 大概率正常走下面这个流程，把 work 封装成一个 func
 	dispatch_function_t func = _dispatch_Block_invoke(work);
 	if (dc_flags & DC_FLAG_CONSUME) {
 		func = _dispatch_call_block_and_release;
 	}
+	// 返回这个
 	return _dispatch_continuation_init_f(dc, dqu, ctxt, func, flags, dc_flags);
 }
 
@@ -2658,7 +2663,7 @@ _dispatch_continuation_async(dispatch_queue_class_t dqu,
 #else
 	(void)dc_flags;
 #endif
-	return dx_push(dqu._dq, dc, qos);
+	return dx_push(dqu._dq, dc, qos); // 这是一个宏 ： _dispatch_lane_concurrent_push
 }
 
 #endif // DISPATCH_PURE_C

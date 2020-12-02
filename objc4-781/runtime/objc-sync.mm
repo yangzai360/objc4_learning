@@ -114,29 +114,32 @@ static SyncData* id2data(id object, enum usage why)
     SyncData* result = NULL;
 
 #if SUPPORT_DIRECT_THREAD_KEYS
+//    TLD 进行一些获取data   ： TLS  是 Thread Local Storage 线程，每个线程都有自己的空间，局部存储。
+//    TLS可以操作四个API：Alloc Free SetValue GetValue
     // Check per-thread single-entry fast cache for matching object
     bool fastCacheOccupied = NO;
     SyncData *data = (SyncData *)tls_get_direct(SYNC_DATA_DIRECT_KEY);
     if (data) {
         fastCacheOccupied = YES;
-
+        //获取Data之后判断内部的 obj 是否跟 传入的对象相同
         if (data->object == object) {
             // Found a match in fast cache.
             uintptr_t lockCount;
 
             result = data;
+            // 通过CountKey 取出 tls 里面的 Count
             lockCount = (uintptr_t)tls_get_direct(SYNC_COUNT_DIRECT_KEY);
             if (result->threadCount <= 0  ||  lockCount <= 0) {
                 _objc_fatal("id2data fastcache is buggy");
             }
 
             switch(why) {
-            case ACQUIRE: {
+            case ACQUIRE: {   // Acquire 获取，把 lockCount++ 保存回去
                 lockCount++;
                 tls_set_direct(SYNC_COUNT_DIRECT_KEY, (void*)lockCount);
                 break;
             }
-            case RELEASE:
+            case RELEASE:   // Release 释放，把 lockCount-- 保存回去，判断它锁了多少次
                 lockCount--;
                 tls_set_direct(SYNC_COUNT_DIRECT_KEY, (void*)lockCount);
                 if (lockCount == 0) {
@@ -156,7 +159,7 @@ static SyncData* id2data(id object, enum usage why)
     }
 #endif
 
-    // Check per-thread cache of already-owned locks for matching object
+    // 检查已拥有的锁的每个线程缓存是否匹配对象
     SyncCache *cache = fetch_cache(NO);
     if (cache) {
         unsigned int i;
@@ -179,7 +182,7 @@ static SyncData* id2data(id object, enum usage why)
                 if (item->lockCount == 0) {
                     // remove from per-thread cache
                     cache->list[i] = cache->list[--cache->used];
-                    // atomic because may collide with concurrent ACQUIRE
+                    // atomic，因为可能与并发的 ACQUIRE操作 发生冲突
                     OSAtomicDecrement32Barrier(&result->threadCount);
                 }
                 break;
@@ -192,12 +195,11 @@ static SyncData* id2data(id object, enum usage why)
         }
     }
 
-    // Thread cache didn't find anything.
-    // Walk in-use list looking for matching object
-    // Spinlock prevents multiple threads from creating multiple 
-    // locks for the same new object.
-    // We could keep the nodes in some hash table if we find that there are
-    // more than 20 or so distinct locks active, but we don't do that now.
+    //线程缓存找不到任何内容。
+    //查找匹配对象Spinlock的Walk-in-use列表
+//    可防止多个线程为同一个新对象创建多个锁。
+    //如果我们发现有20多个不同的锁处于活动状态，
+//    我们可以将节点保存在某个哈希表中，但我们现在不这样做。
     
     lockp->lock();
 
@@ -207,7 +209,7 @@ static SyncData* id2data(id object, enum usage why)
         for (p = *listp; p != NULL; p = p->nextData) {
             if ( p->object == object ) {
                 result = p;
-                // atomic because may collide with concurrent RELEASE
+                // atomic，因为可能与并发的 RELEASE操作 发生冲突
                 OSAtomicIncrement32Barrier(&result->threadCount);
                 goto done;
             }
@@ -215,11 +217,11 @@ static SyncData* id2data(id object, enum usage why)
                 firstUnused = p;
         }
     
-        // no SyncData currently associated with object
+        // 目前没有一个 SyncData 与对象关联
         if ( (why == RELEASE) || (why == CHECK) )
             goto done;
     
-        // an unused one was found, use it
+        // 找到一个没用的，用它
         if ( firstUnused != NULL ) {
             result = firstUnused;
             result->object = (objc_object *)object;
@@ -232,6 +234,9 @@ static SyncData* id2data(id object, enum usage why)
     // XXX allocating memory with a global lock held is bad practice,
     // might be worth releasing the lock, allocating, and searching again.
     // But since we never free these guys we won't be stuck in allocation very often.
+    //分配新的SyncData并添加到列表。
+    //XXX使用全局锁来分配内存是不好的做法，可能值得释放锁、分配并再次搜索。
+    //但既然我们从来没有释放过这些东西，我们就不会经常被困在分配中。
     posix_memalign((void **)&result, alignof(SyncData), sizeof(SyncData));
     result->object = (objc_object *)object;
     result->threadCount = 1;
@@ -245,9 +250,13 @@ static SyncData* id2data(id object, enum usage why)
         // Only new ACQUIRE should get here.
         // All RELEASE and CHECK and recursive ACQUIRE are 
         // handled by the per-thread caches above.
+        //只有新收购的人才会来这里。
+        //所有的释放、检查和递归获取
         if (why == RELEASE) {
             // Probably some thread is incorrectly exiting 
             // while the object is held by another thread.
+            //可能某些线程正在错误地退出
+            //而对象被另一个线程持有。
             return nil;
         }
         if (why != ACQUIRE) _objc_fatal("id2data is buggy");
@@ -255,13 +264,13 @@ static SyncData* id2data(id object, enum usage why)
 
 #if SUPPORT_DIRECT_THREAD_KEYS
         if (!fastCacheOccupied) {
-            // Save in fast thread cache
+            // 保存在快速线程缓存中
             tls_set_direct(SYNC_DATA_DIRECT_KEY, result);
             tls_set_direct(SYNC_COUNT_DIRECT_KEY, (void*)1);
         } else 
 #endif
         {
-            // Save in thread cache
+            // 保存在线程缓存中
             if (!cache) cache = fetch_cache(YES);
             cache->list[cache->used].data = result;
             cache->list[cache->used].lockCount = 1;

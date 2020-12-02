@@ -891,7 +891,9 @@ dispatch_async(dispatch_queue_t dq, dispatch_block_t work)
 	uintptr_t dc_flags = DC_FLAG_CONSUME;
 	dispatch_qos_t qos;
 
+	// 任务包装器，任务只在这里接收保存
 	qos = _dispatch_continuation_init(dc, dq, work, 0, dc_flags);
+	// 完成了任务包装之后，开始看这里第二行的逻辑
 	_dispatch_continuation_async(dq, dc, qos, dc->dc_flags);
 }
 #endif
@@ -1042,14 +1044,15 @@ _dispatch_sync_invoke_and_complete(dispatch_lane_t dq, void *ctxt,
 }
 
 /*
- * For queues we can cheat and inline the unlock code, which is invalid
- * for objects with a more complex state machine (sources or mach channels)
+ * 对于队列，我们可以欺骗并内联解锁代码，
+ * 这对于具有更复杂状态机（源或mach通道）的对象无效
  */
 DISPATCH_NOINLINE
 static void
 _dispatch_lane_barrier_sync_invoke_and_complete(dispatch_lane_t dq,
 		void *ctxt, dispatch_function_t func DISPATCH_TRACE_ARG(void *dc))
 {
+	//  这个就是下层的调用执行
 	_dispatch_sync_function_invoke_inline(dq, ctxt, func);
 	_dispatch_trace_item_complete(dc);
 	if (unlikely(dq->dq_items_tail || dq->dq_width > 1)) {
@@ -1068,7 +1071,8 @@ _dispatch_lane_barrier_sync_invoke_and_complete(dispatch_lane_t dq,
 			DISPATCH_QUEUE_RECEIVED_SYNC_WAIT;
 	uint64_t old_state, new_state;
 
-	// similar to _dispatch_queue_drain_try_unlock
+	// 这个操作很像 _dispatch_queue_drain_try_unlock
+	// 对下层的loop进行状态的释放 _dispatch_lane_barrier_complete
 	os_atomic_rmw_loop2o(dq, dq_state, old_state, new_state, release, {
 		new_state  = old_state - DISPATCH_QUEUE_SERIAL_DRAIN_OWNED;
 		new_state &= ~DISPATCH_QUEUE_DRAIN_UNLOCK_MASK;
@@ -1076,6 +1080,7 @@ _dispatch_lane_barrier_sync_invoke_and_complete(dispatch_lane_t dq,
 		if (unlikely(old_state & fail_unlock_mask)) {
 			os_atomic_rmw_loop_give_up({
 				return _dispatch_lane_barrier_complete(dq, 0, 0);
+				// 对下层进行释放，进行系统内核级的交互
 			});
 		}
 	});
@@ -1610,7 +1615,9 @@ DISPATCH_NOINLINE
 static void
 __DISPATCH_WAIT_FOR_QUEUE__(dispatch_sync_context_t dsc, dispatch_queue_t dq)
 {
+	// 获取目前 queue 的状态
 	uint64_t dq_state = _dispatch_wait_prepare(dq);
+	// 第二个参数是 dsc 是任务要依赖的队列，进行一个匹配
 	if (unlikely(_dq_state_drain_locked_by(dq_state, dsc->dsc_waiter))) {
 		DISPATCH_CLIENT_CRASH((uintptr_t)dq_state,
 				"dispatch_sync called on queue "
@@ -1777,24 +1784,23 @@ _dispatch_barrier_sync_f_inline(dispatch_queue_t dq, void *ctxt,
 		dispatch_function_t func, uintptr_t dc_flags)
 {
 	// dispatch_tid 就是线程的 ID
-	dispatch_tid tid = _dispatch_tid_self();
+	dispatch_ti d tid = _dispatch_tid_self();
 
 	if (unlikely(dx_metatype(dq) != _DISPATCH_LANE_TYPE)) {
 		DISPATCH_CLIENT_CRASH(0, "Queue type doesn't support dispatch_sync");
 	}
 
 	dispatch_lane_t dl = upcast(dq)._dl;
-	// The more correct thing to do would be to merge the qos of the thread
-	// that just acquired the barrier lock into the queue state.
+	// 更正确的做法是将刚刚获得 barrier Lock 的线程的 qos 合并到队列状态中。
 	//
-	// However this is too expensive for the fast path, so skip doing it.
-	// The chosen tradeoff is that if an enqueue on a lower priority thread
-	// contends with this fast path, this thread may receive a useless override.
+	// 但是这对于快速路径来说太消耗性能了，所以跳过它。
+	// 所选择的折衷是，如果低优先级线程上的队列与此快速路径争用，
+	// 则该线程可能会收到无用的重写。
 	//
-	// Global concurrent queues and queues bound to non-dispatch threads
-	// always fall into the slow case, see DISPATCH_ROOT_QUEUE_STATE_INIT_VALUE
-	
-	// 死锁
+	// 全局并发队列和绑定到非调度线程的队列总是属于慢速情况，
+	// 请参阅dispatch_ROOT_QUEUE_STATE_INIT_VALUE
+
+	// 死锁  --  同步执行的时候，等待，从OS底层获取 status
 	if (unlikely(!_dispatch_queue_try_acquire_barrier_sync(dl, tid))) {
 		return _dispatch_sync_f_slow(dl, ctxt, func, DC_FLAG_BARRIER, dl,
 				DC_FLAG_BARRIER | dc_flags);
@@ -1805,6 +1811,7 @@ _dispatch_barrier_sync_f_inline(dispatch_queue_t dq, void *ctxt,
 				DC_FLAG_BARRIER | dc_flags);
 	}
 	_dispatch_introspection_sync_begin(dl);
+	//
 	_dispatch_lane_barrier_sync_invoke_and_complete(dl, ctxt, func
 			DISPATCH_TRACE_ARG(_dispatch_trace_item_sync_push_pop(
 					dq, ctxt, func, dc_flags | DC_FLAG_BARRIER)));
@@ -2695,7 +2702,8 @@ static dispatch_queue_t
 _dispatch_lane_create_with_target(const char *label, dispatch_queue_attr_t dqa,
 		dispatch_queue_t tq, bool legacy)
 {
-//	只有这个地方用低了 dqa, dqa 传入的时候制定了是串行队列还是并行队列
+//	只有这个地方用了 dqa, dqa 传入的时候制定了是串行队列还是并行队列
+	// 生成的就是 dqai
 	dispatch_queue_attr_info_t dqai = _dispatch_queue_attr_to_info(dqa);
 
 	//
@@ -5188,7 +5196,7 @@ _dispatch_lane_concurrent_push(dispatch_lane_t dq, dispatch_object_t dou,
 			_dispatch_queue_try_acquire_async(dq)) {
 		return _dispatch_continuation_redirect_push(dq, dou, qos);
 	}
-
+	// 到底层去调用一个核心方法 lanePush
 	_dispatch_lane_push(dq, dou, qos);
 }
 
@@ -6168,12 +6176,14 @@ _dispatch_root_queue_poke_slow(dispatch_queue_global_t dq, int n, int floor)
 	int remaining = n;
 	int r = ENOSYS;
 
+	// 重点
 	_dispatch_root_queues_init();
 	_dispatch_debug_root_queue(dq, __func__);
 	_dispatch_trace_runtime_event(worker_request, dq, (uint64_t)n);
 
 #if !DISPATCH_USE_INTERNAL_WORKQUEUE
 #if DISPATCH_USE_PTHREAD_ROOT_QUEUES
+//	如果是 global 类型的话，下面会有一个 addthread 的操作
 	if (dx_type(dq) == DISPATCH_QUEUE_GLOBAL_ROOT_TYPE)
 #endif
 	{
@@ -6197,6 +6207,7 @@ _dispatch_root_queue_poke_slow(dispatch_queue_global_t dq, int n, int floor)
 		}
 	}
 
+	// overcommit 过载的情况
 	bool overcommit = dq->dq_priority & DISPATCH_PRIORITY_FLAG_OVERCOMMIT;
 	if (overcommit) {
 		os_atomic_add2o(dq, dgq_pending, remaining, relaxed);
@@ -6208,9 +6219,10 @@ _dispatch_root_queue_poke_slow(dispatch_queue_global_t dq, int n, int floor)
 		}
 	}
 
+	// 根据目前线程池的情况，去线程池处理判断
 	int can_request, t_count;
 	// seq_cst with atomic store to tail <rdar://problem/16932833>
-	t_count = os_atomic_load2o(dq, dgq_thread_pool_size, ordered);
+	t_count = os_atomic_load2o(dq, dgq_thread_pool_size, ordered); // 拿到 tCount 来处理
 	do {
 		can_request = t_count < floor ? 0 : t_count - floor;
 		if (remaining > can_request) {
@@ -6236,6 +6248,7 @@ _dispatch_root_queue_poke_slow(dispatch_queue_global_t dq, int n, int floor)
 	}
 #endif
 	do {
+		// do while 循环 去处理创建线程，下面有一个 --remaining
 		_dispatch_retain(dq); // released in _dispatch_worker_thread
 		while ((r = pthread_create(pthr, attr, _dispatch_worker_thread, dq))) {
 			if (r != EAGAIN) {
@@ -6258,14 +6271,20 @@ _dispatch_root_queue_poke_slow(dispatch_queue_global_t dq, int n, int floor)
 		unsigned dwStackSize = 64 * 1024;
 #endif
 		uintptr_t hThread = 0;
-		while (!(hThread = _beginthreadex(NULL, dwStackSize, _dispatch_worker_thread_thunk, dq, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL))) {
+		while (!(hThread = _beginthreadex(NULL,
+										  dwStackSize,
+										  _dispatch_worker_thread_thunk,
+										  dq,
+										  STACK_SIZE_PARAM_IS_A_RESERVATION,
+										  NULL))) {
 			if (errno != EAGAIN) {
 				(void)dispatch_assume(hThread);
 			}
 			_dispatch_temporary_resource_shortage();
 		}
 		if (_dispatch_mgr_sched.prio > _dispatch_mgr_sched.default_prio) {
-			(void)dispatch_assume_zero(SetThreadPriority((HANDLE)hThread, _dispatch_mgr_sched.prio) == TRUE);
+			(void)dispatch_assume_zero(SetThreadPriority((HANDLE)hThread,
+														 _dispatch_mgr_sched.prio) == TRUE);
 		}
 		CloseHandle((HANDLE)hThread);
 	} while (--remaining);
@@ -6595,6 +6614,7 @@ _dispatch_root_queue_drain(dispatch_queue_global_t dq,
 #endif // DISPATCH_COCOA_COMPAT
 	_dispatch_queue_drain_init_narrowing_check_deadline(&dic, pri);
 	_dispatch_perfmon_start();
+	// 这个 while 循环就是处理里面队列里面的任务的地方
 	while (likely(item = _dispatch_root_queue_drain_one(dq))) {
 		if (reset) _dispatch_wqthread_override_reset();
 		_dispatch_continuation_pop_inline(item, &dic, flags, dq);
@@ -7653,6 +7673,7 @@ _dispatch_root_queues_init_once(void *context DISPATCH_UNUSED)
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunreachable-code"
+	// 判断当前工作队列的处理
 	if (unlikely(!_dispatch_kevent_workqueue_enabled)) {
 #if DISPATCH_USE_KEVENT_SETUP
 		cfg.workq_cb = _dispatch_worker_thread2;
@@ -7661,6 +7682,7 @@ _dispatch_root_queues_init_once(void *context DISPATCH_UNUSED)
 		r = _pthread_workqueue_init(_dispatch_worker_thread2,
 				offsetof(struct dispatch_queue_s, dq_serialnum), 0);
 #endif // DISPATCH_USE_KEVENT_SETUP
+		// 判断事务循环
 #if DISPATCH_USE_KEVENT_WORKLOOP
 	} else if (wq_supported & WORKQ_FEATURE_WORKLOOP) {
 #if DISPATCH_USE_KEVENT_SETUP
@@ -7673,7 +7695,7 @@ _dispatch_root_queues_init_once(void *context DISPATCH_UNUSED)
 				(pthread_workqueue_function_kevent_t)
 				_dispatch_kevent_worker_thread,
 				(pthread_workqueue_function_workloop_t)
-				_dispatch_workloop_worker_thread,
+				_dispatch_workloop_worker_thread, // Thread
 				offsetof(struct dispatch_queue_s, dq_serialnum), 0);
 #endif // DISPATCH_USE_KEVENT_SETUP
 #endif // DISPATCH_USE_KEVENT_WORKLOOP
@@ -7773,6 +7795,7 @@ libdispatch_init(void)
 #endif
 
 #if DISPATCH_USE_RESOLVERS // rdar://problem/8541707
+	//
 	_dispatch_main_q.do_targetq = _dispatch_get_default_queue(true);
 #endif
 

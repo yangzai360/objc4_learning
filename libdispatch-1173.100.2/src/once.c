@@ -44,6 +44,7 @@ _dispatch_once_callout(dispatch_once_gate_t l, void *ctxt,
 		dispatch_function_t func)
 {
 	_dispatch_client_callout(ctxt, func);
+	// 进行广播
 	_dispatch_once_gate_broadcast(l);
 }
 
@@ -51,9 +52,11 @@ DISPATCH_NOINLINE
 void
 dispatch_once_f(dispatch_once_t *val, void *ctxt, dispatch_function_t func)
 {
+	// val 就是外界传递进来的一般是 &onceToken 一般是一个静态变量的地址
 	dispatch_once_gate_t l = (dispatch_once_gate_t)val;
 
 #if !DISPATCH_ONCE_INLINE_FASTPATH || DISPATCH_ONCE_USE_QUIESCENT_COUNTER
+	// 如果判断一个once执行完了，就通过
 	uintptr_t v = os_atomic_load(&l->dgo_once, acquire);
 	if (likely(v == DLOCK_ONCE_DONE)) {
 		return;
@@ -64,6 +67,7 @@ dispatch_once_f(dispatch_once_t *val, void *ctxt, dispatch_function_t func)
 	}
 #endif
 #endif
+	// try enter gate
 	if (_dispatch_once_gate_tryenter(l)) {
 		return _dispatch_once_callout(l, ctxt, func);
 	}

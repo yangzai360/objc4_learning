@@ -676,6 +676,7 @@ DISPATCH_ALWAYS_INLINE
 static inline bool
 _dispatch_once_gate_tryenter(dispatch_once_gate_t l)
 {
+	// dgo_once 进行 compare，然后进行解锁
 	return os_atomic_cmpxchg(&l->dgo_once, DLOCK_ONCE_UNLOCKED,
 			(uintptr_t)_dispatch_lock_value_for_self(), relaxed);
 }
@@ -684,6 +685,7 @@ DISPATCH_ALWAYS_INLINE
 static inline void
 _dispatch_once_gate_broadcast(dispatch_once_gate_t l)
 {
+	// 先给自己上了一把锁
 	dispatch_lock value_self = _dispatch_lock_value_for_self();
 	uintptr_t v;
 #if DISPATCH_ONCE_USE_QUIESCENT_COUNTER
